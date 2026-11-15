@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Privacy Policy — 7LMMOVIE</title>
+    <meta name="theme-color" content="#0b0d10" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0d10;
+        --text: #e8eaed;
+        --muted: #9aa3b2;
+        --accent: #e23d3d;
+        --line: rgba(255, 255, 255, 0.1);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.65;
+      }
+      header {
+        padding: 1.25rem 1.5rem;
+        border-bottom: 1px solid var(--line);
+        font-family: system-ui, sans-serif;
+      }
+      header a { color: var(--accent); text-decoration: none; font-weight: 700; letter-spacing: 0.02em; }
+      main { max-width: 42rem; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+      h1 { font-size: 1.85rem; margin: 0 0 0.35rem; }
+      .meta { color: var(--muted); font-family: system-ui, sans-serif; font-size: 0.9rem; margin-bottom: 2rem; }
+      h2 { font-size: 1.15rem; margin: 1.75rem 0 0.6rem; }
+      p, li { color: #d5d8de; }
+      ul { padding-left: 1.2rem; }
+      .links { margin-top: 2.5rem; font-family: system-ui, sans-serif; }
+      .links a { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <header><a href="/">7LMMOVIE</a></header>
+    <main>
+      <h1>Privacy Policy</h1>
+      <p class="meta">Last updated: November 16, 2026 · Applies to 7LMMOVIE website, related backends, and Discord Activities.</p>
+
+      <h2>1. Who we are</h2>
+      <p>7LMMOVIE operates a streaming interface and a Discord Activity for group watching. This policy explains what information we process when you use those products.</p>
+
+      <h2>2. Information we process</h2>
+      <ul>
+        <li><strong>Discord Activity data:</strong> when you authorize the Activity we receive Discord user identifiers and profile fields granted by OAuth scopes (for example user id, username, avatar) needed to run the session and show participants.</li>
+        <li><strong>Session / watch-party data:</strong> activity instance id, host role, selected title metadata, and playback sync events (play, pause, seek) kept in memory for the life of the room.</li>
+        <li><strong>Local device data:</strong> on the website, features such as Continue Watching or My List may be stored in your browser localStorage and are not uploaded to our servers as an account profile.</li>
+        <li><strong>Technical logs:</strong> standard server logs (IP, user agent, request path, timestamps) may be collected by our hosts (for example Vercel, Render, Discord’s proxy) for reliability and abuse prevention.</li>
+      </ul>
+
+      <h2>3. How we use information</h2>
+      <ul>
+        <li>Authenticate you inside Discord via the Embedded App SDK.</li>
+        <li>Operate synchronized watch rooms and display participant lists.</li>
+        <li>Proxy content catalog and stream metadata from configured upstream APIs.</li>
+        <li>Maintain security, debug outages, and prevent misuse.</li>
+      </ul>
+
+      <h2>4. Sharing</h2>
+      <p>We do not sell personal information. Data may be processed by infrastructure providers that host our app (hosting, CDN, Discord). Discord receives and processes data according to Discord’s Privacy Policy when you use Activities inside their client.</p>
+
+      <h2>5. Retention</h2>
+      <p>Watch-party room state is ephemeral and discarded when the room empties or the process restarts. OAuth tokens are used to complete authentication and are not intended to be stored long-term as a user database. Browser localStorage remains until you clear site data.</p>
+
+      <h2>6. Children</h2>
+      <p>The service is not directed to children under 13 (or the minimum age required in your country / by Discord). Do not use the Activity if you do not meet Discord’s age requirements.</p>
+
+      <h2>7. Your choices</h2>
+      <ul>
+        <li>Disconnect or leave the Discord Activity to stop the session.</li>
+        <li>Revoke the app’s authorization in Discord Authorized Apps settings.</li>
+        <li>Clear browser storage for the website to remove local lists/progress.</li>
+      </ul>
+
+      <h2>8. International processing</h2>
+      <p>Servers and Discord infrastructure may process data in different countries. By using the service you understand that processing may occur outside your home country subject to applicable safeguards of those providers.</p>
+
+      <h2>9. Changes</h2>
+      <p>We may update this Privacy Policy by posting a new version at this URL. Continued use after an update means you accept the revised policy.</p>
+
+      <h2>10. Contact</h2>
+      <p>Privacy questions: contact the 7LMMOVIE operators via the Discord application owner account for this app, or through the support channel listed on our GitHub organization.</p>
+
+      <p class="links"><a href="/terms.html">Terms of Service</a></p>
+    </main>
+  </body>
+</html>

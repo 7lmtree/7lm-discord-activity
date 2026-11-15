@@ -48,6 +48,15 @@ npm run dev
 
 للاختبار داخل Discord تحتاج tunnel (مثل cloudflared) يشير لسيرفرك، ثم URL Mappings في Developer Portal.
 
+## Legal links (Discord app verification)
+
+ضع هالروابط في Discord Developer Portal → App → **Terms of Service** / **Privacy Policy**:
+
+- Terms of Service: `https://7lmmovie.vercel.app/terms.html`
+- Privacy Policy: `https://7lmmovie.vercel.app/privacy.html`
+
+نفس الملفات موجودة أيضاً في `client/public/` داخل هذا الريبو بعد النشر.
+
 ## Discord Developer Portal
 
 1. Application → Enable **Activity**
