@@ -1,0 +1,75 @@
+# 7LM Discord Activity
+
+Watch party Activity منفصل عن موقع `7lmmovie.vercel.app` — ما يعدّل ريبو الأفلام.
+
+## ماذا يفعل
+
+1. شاشة تعريف + لودينق (Discord Embedded App SDK auth)
+2. هوم: ترند/بحث من API الأفلام الحالي عبر BFF
+3. مسرح: تشغيل متزامن (Host → الجميع) عبر WebSocket `instanceId`
+
+## هيكل
+
+```
+client/   Vite + React + @discord/embedded-app-sdk
+server/   Express: /api/discord/token + /api/* proxy + /ws/watch
+```
+
+## تشغيل محلي
+
+```bash
+cd 7lm-discord-activity
+npm install
+npm install --prefix client
+npm install --prefix server
+```
+
+`server/.env`:
+
+```
+PORT=8787
+DISCORD_CLIENT_ID=...
+DISCORD_CLIENT_SECRET=...
+MOVIES_API_BASE=https://emnex-movies-backend.onrender.com
+```
+
+`client/.env`:
+
+```
+VITE_DISCORD_CLIENT_ID=...
+```
+
+```bash
+npm run dev
+```
+
+- Client: http://localhost:5173  
+- Server: http://localhost:8787  
+
+للاختبار داخل Discord تحتاج tunnel (مثل cloudflared) يشير لسيرفرك، ثم URL Mappings في Developer Portal.
+
+## Discord Developer Portal
+
+1. Application → Enable **Activity**
+2. **Activity URL** = جذر استضافة هذا المشروع (بعد النشر)
+3. URL Mappings مثال (كل شيء على سيرفر الاكتيفتي):
+
+| Prefix | Target |
+|--------|--------|
+| `/` | `your-activity-host.example.com` |
+| `/api` | `your-activity-host.example.com/api` |
+| `/ws` | `your-activity-host.example.com` |
+
+السيرفر يمرّر `/api/*` (ما عدا discord/health) إلى `MOVIES_API_BASE`.
+
+4. OAuth2 scopes المستخدمة: `identify`, `guilds`, `applications.commands`
+
+## نشر مقترح
+
+- ابنِ العميل: `npm run build --prefix client`
+- شغّل السيرفر على Render/Fly وهو يخدم `client/dist` + API + WS
+- **لا** تربط Activity بـ `7lmmovie.vercel.app`
+
+## ملاحظة
+
+فتح `/` في متصفح عادي يعرض التعريف ورسالة «افتح من داخل Discord» — الـ SDK يحتاج iframe ديسكورد.
