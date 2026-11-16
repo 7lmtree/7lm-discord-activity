@@ -71,7 +71,17 @@ npm run dev
 
 السيرفر يمرّر `/api/*` (ما عدا discord/health) إلى `MOVIES_API_BASE`.
 
-4. OAuth2 scopes المستخدمة: `identify`, `guilds`, `applications.commands`
+4. OAuth2 scopes المستخدمة: `identify`, `applications.commands`, `rpc.activities.write`
+5. **Art Assets** (Activities → Art Assets) — ارفع من مجلد `art-upload/`:
+
+| Portal field | File |
+|--------------|------|
+| App Icon (General Information) | `icon-1024.jpg` |
+| Cover Art | `cover-1024x576.jpg` |
+| Background (Grid overlay) | `background-1024x576.jpg` |
+| Rich Presence asset `pip` (اختياري) | `pip-1024.jpg` |
+
+الصورة المصغّرة عند تصغير الأكتيفتي (PiP): التطبيق يستمع لـ `ACTIVITY_LAYOUT_MODE_UPDATE` ويعرض كرت بوستر مضغوط، والـ Cover/Background يظهروون في رفّ الأنشطة والـ Grid.
 
 ## نشر مقترح
 
