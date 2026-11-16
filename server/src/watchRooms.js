@@ -15,6 +15,8 @@ function emptyState() {
     animeType: null,
     quality: null,
     sources: [],
+    subtitles: [],
+    subtitleLang: null,
     sourceUrl: null,
     playing: false,
     currentTime: 0,
@@ -39,6 +41,8 @@ const CONTROL_KEYS = [
   "animeType",
   "quality",
   "sources",
+  "subtitles",
+  "subtitleLang",
   "sourceUrl",
   "playing",
   "currentTime",
@@ -238,6 +242,9 @@ export function createWatchHub({ store, onTitleChange } = {}) {
       animeType: item.animeType || null,
       quality: item.quality || null,
       sourceUrl: item.sourceUrl || null,
+      sources: Array.isArray(item.sources) ? item.sources : [],
+      subtitles: Array.isArray(item.subtitles) ? item.subtitles : [],
+      subtitleLang: item.subtitleLang || null,
       suggestedBy: client.userId,
       suggestedByName: client.username,
       at: Date.now(),
@@ -272,6 +279,9 @@ export function createWatchHub({ store, onTitleChange } = {}) {
       room.state.animeType = entry.animeType;
       room.state.quality = entry.quality;
       room.state.sourceUrl = entry.sourceUrl;
+      room.state.sources = entry.sources || [];
+      room.state.subtitles = entry.subtitles || [];
+      room.state.subtitleLang = entry.subtitleLang || null;
       room.state.playing = true;
       room.state.currentTime = 0;
     }

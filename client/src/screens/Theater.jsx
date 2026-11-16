@@ -48,7 +48,7 @@ export default function Theater({ room, onBack, onHostControl, socket, selfUserI
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   const [epBusy, setEpBusy] = useState(false);
-  const [panel, setPanel] = useState(""); // queue | host | quality
+  const [panel, setPanel] = useState(""); // queue | host | quality | subs
 
   useEffect(() => {
     const el = videoRef.current;
@@ -68,6 +68,7 @@ export default function Theater({ room, onBack, onHostControl, socket, selfUserI
         pictureInPictureToggle: false,
         remainingTimeDisplay: true,
         volumePanel: { inline: true },
+        subsCapsButton: true,
       },
       html5: {
         vhs: {
@@ -76,6 +77,7 @@ export default function Theater({ room, onBack, onHostControl, socket, selfUserI
         },
         nativeAudioTracks: false,
         nativeVideoTracks: false,
+        nativeTextTracks: false,
       },
     });
 
@@ -154,6 +156,42 @@ export default function Theater({ room, onBack, onHostControl, socket, selfUserI
     player.el()?.classList.toggle("vjs-locked", !isHost);
   }, [isHost]);
 
+  function clearTextTracks(player) {
+    const tracks = player.remoteTextTracks?.();
+    if (!tracks) return;
+    for (let i = tracks.length - 1; i >= 0; i -= 1) {
+      player.removeRemoteTextTrack(tracks[i]);
+    }
+  }
+
+  function applySubtitleTracks(player, subs = [], preferredLang) {
+    clearTextTracks(player);
+    if (!subs.length) return;
+    const preferred = preferredLang || subs.find((s) => s.default)?.lang || subs[0]?.lang;
+    subs.forEach((sub) => {
+      const src = streamSrc(sub.url);
+      if (!src) return;
+      player.addRemoteTextTrack(
+        {
+          kind: "subtitles",
+          srclang: sub.srclang || "und",
+          label: sub.label || sub.lang || "Subtitles",
+          src,
+          default: Boolean(preferred && sub.lang === preferred),
+          mode: preferred && sub.lang === preferred ? "showing" : "disabled",
+        },
+        false
+      );
+    });
+    // Ensure preferred track is showing after attach
+    const remote = player.remoteTextTracks?.();
+    if (!remote || !preferred) return;
+    for (let i = 0; i < remote.length; i += 1) {
+      const t = remote[i];
+      t.mode = t.label === preferred || t.language === preferred ? "showing" : "disabled";
+    }
+  }
+
   useEffect(() => {
     const player = playerRef.current;
     if (!player || !ready || !state.sourceUrl) return;
@@ -161,13 +199,19 @@ export default function Theater({ room, onBack, onHostControl, socket, selfUserI
     const src = streamSrc(state.sourceUrl);
     const type = sourceType(src);
     const current = player.currentSrc?.() || "";
-    if (current === src) return;
+    const subs = state.subtitles || [];
+    if (current === src) {
+      applySubtitleTracks(player, subs, state.subtitleLang);
+      return;
+    }
     loadStarted.current = Date.now();
+    clearTextTracks(player);
     player.src({ src, type });
     player.one("loadedmetadata", () => {
+      applySubtitleTracks(player, subs, state.subtitleLang);
       if (state.playing) player.play()?.catch?.(() => {});
     });
-  }, [state.sourceUrl, ready]);
+  }, [state.sourceUrl, state.subtitles, state.subtitleLang, ready]);
 
   useEffect(() => {
     const player = playerRef.current;
@@ -195,6 +239,7 @@ export default function Theater({ room, onBack, onHostControl, socket, selfUserI
   const canNext = isHost && state.episode != null && Number(state.episode) < maxEp;
   const queue = state.queue || [];
   const sources = state.sources || [];
+  const subtitles = state.subtitles || [];
   const others = useMemo(
     () => (room.participants || []).filter((p) => p.userId !== room.hostUserId),
     [room.participants, room.hostUserId]
@@ -252,6 +297,29 @@ export default function Theater({ room, onBack, onHostControl, socket, selfUserI
     setPanel("");
   }
 
+  function switchSubtitle(lang) {
+    const player = playerRef.current;
+    const subs = state.subtitles || [];
+    if (player && !player.isDisposed()) {
+      const remote = player.remoteTextTracks?.();
+      if (remote) {
+        for (let i = 0; i < remote.length; i += 1) {
+          const t = remote[i];
+          if (!lang) t.mode = "disabled";
+          else t.mode = t.label === lang || t.language === lang ? "showing" : "disabled";
+        }
+      }
+    }
+    if (isHost) {
+      onHostControl({
+        subtitleLang: lang,
+        currentTime: player?.currentTime?.() || state.currentTime || 0,
+        playing: state.playing,
+      });
+    }
+    setPanel("");
+  }
+
   return (
     <div className="theater vjs-shell">
       <div className="theater-top visible">
@@ -264,6 +332,7 @@ export default function Theater({ room, onBack, onHostControl, socket, selfUserI
           {ep && <em className="ep-chip">{ep}</em>}
           {state.animeType && <em className="ep-chip soft">{String(state.animeType).toUpperCase()}</em>}
           {state.quality && <em className="ep-chip soft">{state.quality}</em>}
+          {state.subtitleLang && <em className="ep-chip soft">CC {state.subtitleLang}</em>}
           <span className={isHost ? "badge host" : "badge"}>{isHost ? "Host" : "Synced"}</span>
         </div>
         <span className="status">{isHost ? "أنت تتحكّم" : "متابعة مباشرة"}</span>
@@ -281,6 +350,15 @@ export default function Theater({ room, onBack, onHostControl, socket, selfUserI
           </div>
         )}
         <div className="chip-row">
+          {subtitles.length > 0 && (
+            <button
+              type="button"
+              className={`chip ${panel === "subs" ? "on" : ""}`}
+              onClick={() => setPanel(panel === "subs" ? "" : "subs")}
+            >
+              الترجمة
+            </button>
+          )}
           {sources.length > 1 && isHost && (
             <button
               type="button"
@@ -306,6 +384,32 @@ export default function Theater({ room, onBack, onHostControl, socket, selfUserI
           </button>
         </div>
       </div>
+
+      {panel === "subs" && (
+        <div className="theater-panel">
+          <h3>الترجمة / Subtitles</h3>
+          {!subtitles.length && <p className="muted-note">ما في ملفات ترجمة لهذا المصدر</p>}
+          <div className="chip-row">
+            <button
+              type="button"
+              className={`chip ${!state.subtitleLang ? "on" : ""}`}
+              onClick={() => switchSubtitle(null)}
+            >
+              إيقاف
+            </button>
+            {subtitles.map((s) => (
+              <button
+                key={`${s.lang}-${s.url}`}
+                type="button"
+                className={`chip ${state.subtitleLang === s.lang ? "on" : ""}`}
+                onClick={() => switchSubtitle(s.lang)}
+              >
+                {s.label || s.lang}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {panel === "quality" && (
         <div className="theater-panel">

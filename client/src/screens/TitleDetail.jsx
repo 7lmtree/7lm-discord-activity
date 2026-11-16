@@ -248,23 +248,24 @@ export default function TitleDetail({ item, room, onBack, onPlay, onSuggest }) {
       <div className="detail-body">
         {anime && (
           <div className="picker-block">
-            <h2>الصوت</h2>
+            <h2>الصوت / الترجمة</h2>
             <div className="chip-row">
               <button
                 type="button"
                 className={`chip ${animeType === "sub" ? "on" : ""}`}
                 onClick={() => setAnimeType("sub")}
               >
-                Sub
+                ترجمة (Sub)
               </button>
               <button
                 type="button"
                 className={`chip ${animeType === "dub" ? "on" : ""}`}
                 onClick={() => setAnimeType("dub")}
               >
-                Dub
+                دبلجة (Dub)
               </button>
             </div>
+            <p className="muted-note">ملفات الترجمة (CC) تظهر داخل المشغّل بعد التشغيل</p>
           </div>
         )}
 

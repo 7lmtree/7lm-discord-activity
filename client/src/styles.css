@@ -1325,8 +1325,21 @@ button {
   background: rgba(0, 0, 0, 0.45);
 }
 
-.theater-panel {
-  margin: 0.35rem 0.85rem 0.55rem;
+.vjs-stage .video-js .vjs-text-track-display > div {
+  background: transparent !important;
+}
+
+.vjs-stage .video-js .vjs-text-track-cue > div {
+  background: rgba(0, 0, 0, 0.72) !important;
+  color: #fff !important;
+  font-family: "Figtree", sans-serif !important;
+  font-size: 1.05em !important;
+  line-height: 1.35 !important;
+  padding: 0.15em 0.4em !important;
+  border-radius: 4px;
+}
+
+.theater-panel {  margin: 0.35rem 0.85rem 0.55rem;
   padding: 0.75rem 0.85rem;
   border-radius: 12px;
   border: 1px solid var(--line);

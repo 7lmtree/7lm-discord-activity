@@ -336,6 +336,34 @@ export function extractSeasonList(detail) {
     .filter((s) => s.se > 0 && s.maxEp > 0);
 }
 
+export function extractSubtitles(payload) {
+  const raw = Array.isArray(payload?.subtitles)
+    ? payload.subtitles
+    : Array.isArray(payload?.subs)
+      ? payload.subs
+      : Array.isArray(payload?.tracks)
+        ? payload.tracks
+        : [];
+  return raw
+    .map((t, i) => {
+      const url = t?.url || t?.file || t?.src || t?.vtt || "";
+      if (!url) return null;
+      const lang = String(t.lang || t.language || t.label || t.srclang || `Track ${i + 1}`);
+      const srclang = String(t.srclang || t.code || lang)
+        .slice(0, 8)
+        .toLowerCase()
+        .replace(/[^a-z-]/g, "") || "und";
+      return {
+        label: lang,
+        lang,
+        srclang,
+        url: streamSrc(String(url)),
+        default: Boolean(t.default) || i === 0,
+      };
+    })
+    .filter(Boolean);
+}
+
 export function extractSourceList(payload) {
   if (payload?.hls) {
     return [
@@ -422,6 +450,7 @@ export async function resolvePlayable(item, opts = {}) {
   if (isAnimeItem(item) || opts.kind === "anime") {
     const sources = await api.animeSources(id, episode, animeType);
     const list = extractSourceList(sources);
+    const subs = extractSubtitles(sources);
     const url = streamSrc(pickSourceUrl(sources, quality));
     if (!url) throw new Error("ما لقيت مصدر تشغيل للأنمي");
     return {
@@ -433,6 +462,8 @@ export async function resolvePlayable(item, opts = {}) {
       description: descriptionText(item),
       sourceUrl: url,
       sources: list.map((s) => ({ ...s, url: streamSrc(s.url) })),
+      subtitles: subs,
+      subtitleLang: subs.find((s) => s.default)?.lang || subs[0]?.lang || null,
       playing: true,
       currentTime: 0,
       season: 1,
@@ -461,6 +492,7 @@ export async function resolvePlayable(item, opts = {}) {
 
   url = streamSrc(url);
   if (!url) throw new Error("ما لقيت مصدر تشغيل");
+  const subs = extractSubtitles(sources);
   return {
     mediaId: String(id),
     kind: series ? "tv" : "movie",
@@ -470,6 +502,8 @@ export async function resolvePlayable(item, opts = {}) {
     description: descriptionText(item),
     sourceUrl: url,
     sources: list.map((s) => ({ ...s, url: streamSrc(s.url) })),
+    subtitles: subs,
+    subtitleLang: subs.find((s) => s.default)?.lang || subs[0]?.lang || null,
     playing: true,
     currentTime: 0,
     season: series ? Number(season) || 1 : null,
