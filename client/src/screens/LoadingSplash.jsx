@@ -1,37 +1,55 @@
-const STEPS = ["نتصل بديسكورد", "جاري التفويض", "تبادل التوكن", "تأكيد الهوية", "Connecting watch room", "Joined room"];
+const STEPS = [
+  { key: "connect", label: "نتصل بديسكورد", match: ["نتصل", "connect"] },
+  { key: "auth", label: "جاري التفويض", match: ["تفويض", "authorize"] },
+  { key: "token", label: "تبادل التوكن", match: ["توكن", "token"] },
+  { key: "identity", label: "تأكيد الهوية", match: ["هوية", "authenticate", "تأكيد"] },
+  { key: "room", label: "نجهّز غرفة المشاهدة", match: ["غرفة", "room", "Connecting", "Joined", "watch"] },
+];
+
+function resolveStep(status) {
+  const s = String(status || "").toLowerCase();
+  let idx = 0;
+  STEPS.forEach((step, i) => {
+    if (step.match.some((m) => s.includes(m.toLowerCase()))) idx = i;
+  });
+  return idx;
+}
 
 export default function LoadingSplash({ status, error, outside }) {
-  const stepIndex = Math.max(
-    0,
-    STEPS.findIndex((s) => status?.includes(s.slice(0, 8)) || status === s)
-  );
+  const stepIndex = resolveStep(status);
+  const progress = outside || error ? 0 : Math.round(((stepIndex + 1) / STEPS.length) * 100);
 
   return (
     <section className="splash" aria-live="polite">
+      <div className="splash-bg" aria-hidden>
+        <img src="/art/cover.jpg" alt="" />
+      </div>
       <div className="splash-stage">
         <div className="splash-glow" aria-hidden />
         <div className="splash-grain" aria-hidden />
 
         <div className="splash-mark" aria-hidden>
-          <span>7</span>
+          <img src="/art/icon.jpg" alt="" />
         </div>
 
         <p className="brand splash-brand">
           7LM<span>WATCH</span>
         </p>
-        <p className="tagline">
-          غرفة سينما داخل ديسكورد — نفس المشهد، نفس التوقيت، مع اللي معك بالقناة.
-        </p>
+        <p className="tagline">غرفة سينما داخل ديسكورد — نفس المشهد، نفس التوقيت.</p>
 
         {!error && !outside && (
           <div className="splash-progress">
-            <div className="spinner" aria-hidden />
-            <p className="status">{status || "نجهّز الجلسة…"}</p>
-            <div className="splash-dots" aria-hidden>
-              {[0, 1, 2, 3].map((i) => (
-                <span key={i} className={i <= Math.max(stepIndex, 0) ? "on" : ""} />
-              ))}
+            <div className="splash-bar" aria-hidden>
+              <span style={{ width: `${Math.max(progress, 12)}%` }} />
             </div>
+            <p className="status">{status || STEPS[0].label}</p>
+            <ol className="splash-steps">
+              {STEPS.map((step, i) => (
+                <li key={step.key} className={i < stepIndex ? "done" : i === stepIndex ? "on" : ""}>
+                  {step.label}
+                </li>
+              ))}
+            </ol>
           </div>
         )}
 

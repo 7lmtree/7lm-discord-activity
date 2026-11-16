@@ -2,7 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import LoadingSplash from "./screens/LoadingSplash.jsx";
 import ActivityHome from "./screens/ActivityHome.jsx";
 import Theater from "./screens/Theater.jsx";
-import { bootstrapDiscord, isProbablyInDiscord } from "./lib/sdk.js";
+import PipCard from "./components/PipCard.jsx";
+import {
+  bootstrapDiscord,
+  isProbablyInDiscord,
+  LAYOUT,
+  publishPresence,
+  subscribeLayoutMode,
+} from "./lib/sdk.js";
 import { connectWatchRoom } from "./lib/watchSocket.js";
 
 export default function App() {
@@ -11,6 +18,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [outside, setOutside] = useState(false);
   const [session, setSession] = useState(null);
+  const [layoutMode, setLayoutMode] = useState(LAYOUT.FOCUSED);
   const [room, setRoom] = useState({
     state: null,
     participants: [],
@@ -22,6 +30,7 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     let sock = null;
+    let unsubLayout = () => {};
 
     (async () => {
       try {
@@ -33,6 +42,7 @@ export default function App() {
         const boot = await bootstrapDiscord({ onStatus: setStatus });
         if (cancelled) return;
         setSession(boot);
+        unsubLayout = subscribeLayoutMode(boot.sdk, setLayoutMode);
 
         sock = connectWatchRoom({
           instanceId: boot.instanceId,
@@ -50,6 +60,11 @@ export default function App() {
                 participants: msg.participants || prev.participants,
               }));
               if (msg.state?.sourceUrl) setScreen("theater");
+              publishPresence(boot.sdk, {
+                title: msg.state?.title,
+                poster: msg.state?.poster || msg.state?.banner,
+                people: (msg.participants || []).length || 1,
+              });
             }
             if (msg.type === "participants") {
               setRoom((prev) => ({
@@ -77,9 +92,19 @@ export default function App() {
 
     return () => {
       cancelled = true;
+      unsubLayout();
       sock?.close();
     };
   }, []);
+
+  useEffect(() => {
+    if (!session?.sdk) return;
+    publishPresence(session.sdk, {
+      title: room.state?.title,
+      poster: room.state?.poster || room.state?.banner,
+      people: room.participants?.length || 1,
+    });
+  }, [session?.sdk, room.state?.title, room.state?.poster, room.state?.banner, room.participants?.length]);
 
   const onPick = useCallback(
     (patch) => {
@@ -104,9 +129,20 @@ export default function App() {
     [socket]
   );
 
+  const minimized = layoutMode === LAYOUT.PIP || layoutMode === LAYOUT.GRID;
+
   const content = useMemo(() => {
     if (screen === "loading" || !session) {
       return <LoadingSplash status={status} error={error} outside={outside} />;
+    }
+    if (minimized) {
+      return (
+        <PipCard
+          title={room.state?.title}
+          poster={room.state?.poster || room.state?.banner}
+          peopleCount={room.participants?.length || 0}
+        />
+      );
     }
     if (screen === "theater") {
       return (
@@ -117,14 +153,8 @@ export default function App() {
         />
       );
     }
-    return (
-      <ActivityHome
-        session={session}
-        room={room}
-        onPick={onPick}
-      />
-    );
-  }, [screen, session, status, error, outside, room, onPick, onHostControl]);
+    return <ActivityHome session={session} room={room} onPick={onPick} />;
+  }, [screen, session, status, error, outside, room, onPick, onHostControl, minimized]);
 
-  return <div className="shell">{content}</div>;
+  return <div className={`shell ${minimized ? "shell-pip" : ""}`}>{content}</div>;
 }
