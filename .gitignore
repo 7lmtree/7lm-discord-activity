@@ -2,9 +2,11 @@ node_modules/
 client/node_modules/
 server/node_modules/
 client/dist/
+data/rooms.json
 .env
 client/.env
 server/.env
 .DS_Store
 *.log
 .vercel
+tmp-trending.json

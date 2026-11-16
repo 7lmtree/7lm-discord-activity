@@ -1,11 +1,29 @@
 import { mediaKey, posterUrl, titleText, metaLine } from "../lib/api.js";
 import { IconPlay } from "./Icons.jsx";
 
-export default function MediaRow({ title, items = [], loading = false, onPick }) {
+export default function MediaRow({
+  title,
+  items = [],
+  loading = false,
+  onPick,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore,
+}) {
   return (
     <section className="media-row">
       <div className="media-row-head">
         <h2>{title}</h2>
+        {hasMore && (
+          <button
+            type="button"
+            className="ghost load-more-btn"
+            disabled={loadingMore}
+            onClick={() => onLoadMore?.()}
+          >
+            {loadingMore ? "…" : "المزيد"}
+          </button>
+        )}
       </div>
       <div className="media-rail" dir="rtl">
         {loading &&

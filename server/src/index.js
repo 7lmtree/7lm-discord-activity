@@ -6,15 +6,52 @@ import cors from "cors";
 import { WebSocketServer } from "ws";
 import { config } from "./config.js";
 import { createWatchHub } from "./watchRooms.js";
+import { createRoomStore } from "./roomStore.js";
+import { createTtlCache } from "./cache.js";
+import { recordTelemetry, listTelemetry } from "./telemetry.js";
+import { createNotifyHook } from "./discordNotify.js";
+import { attachDiscordInteractions } from "./discordBot.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const clientDist = path.resolve(__dirname, "../../client/dist");
 
 const app = express();
 app.use(cors({ origin: config.clientOrigin === "*" ? true : config.clientOrigin }));
-app.use(express.json({ limit: "256kb" }));
+app.use(
+  express.json({
+    limit: "256kb",
+    verify: (req, _res, buf) => {
+      if (req.originalUrl?.startsWith("/api/discord/interactions")) {
+        req.rawBody = buf.toString("utf8");
+      }
+    },
+  })
+);
 
-const trendingCache = { body: null, at: 0, ttlMs: 90_000 };
+const apiCache = createTtlCache({ defaultTtlMs: 90_000, maxEntries: 250 });
+let roomStoreMode = "memory+file";
+
+function cacheKey(req) {
+  return `${req.method}:${req.path}${req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : ""}`;
+}
+
+function shouldCacheGet(req) {
+  if (req.method !== "GET") return false;
+  return (
+    req.path.startsWith("/trending") ||
+    req.path.startsWith("/anime/trending") ||
+    req.path.startsWith("/anime/popular") ||
+    req.path.startsWith("/anime/sources/") ||
+    req.path.startsWith("/sources/") ||
+    req.path.startsWith("/movie/")
+  );
+}
+
+function cacheTtlFor(pathName) {
+  if (pathName.startsWith("/sources/") || pathName.startsWith("/anime/sources/")) return 45_000;
+  if (pathName.startsWith("/movie/")) return 120_000;
+  return 90_000;
+}
 
 async function exchangeDiscordToken(req, res) {
   const code = req.body?.code;
@@ -53,8 +90,8 @@ async function warmMoviesApi() {
       headers: { Accept: "application/json" },
     });
     if (upstream.ok) {
-      trendingCache.body = await upstream.text();
-      trendingCache.at = Date.now();
+      const text = await upstream.text();
+      apiCache.set("GET:/trending?perPage=12", text, 90_000);
       console.log("Warmed movies trending cache");
     }
   } catch (err) {
@@ -62,18 +99,156 @@ async function warmMoviesApi() {
   }
 }
 
-app.get("/api/health", (_req, res) => {
-  res.json({
+function healthPayload() {
+  return {
     ok: true,
     service: "7lm-discord-activity",
     moviesApi: config.moviesApiBase,
     discordConfigured: Boolean(config.discordClientId && config.discordClientSecret),
+    botConfigured: Boolean(config.discordBotToken),
+    notifyConfigured: Boolean(config.discordBotToken && config.discordNotifyChannelId),
+    interactionsConfigured: Boolean(config.discordPublicKey),
+    redisConfigured: Boolean(config.redisUrl),
+    roomStore: roomStoreMode,
+    accountBridge: Boolean(config.accountApiBase),
     clientId: config.discordClientId || null,
-  });
+    cache: apiCache.stats(),
+  };
+}
+
+app.get("/api/health", (_req, res) => {
+  res.json(healthPayload());
 });
 
 app.post("/api/token", exchangeDiscordToken);
 app.post("/api/discord/token", exchangeDiscordToken);
+
+attachDiscordInteractions(app, { getHealth: healthPayload });
+
+/** Lightweight playback telemetry */
+app.post("/api/telemetry", (req, res) => {
+  const body = req.body || {};
+  recordTelemetry({
+    type: body.type || "playback",
+    sourceType: body.sourceType || null,
+    loadMs: body.loadMs != null ? Number(body.loadMs) : null,
+    error: body.error ? String(body.error).slice(0, 300) : null,
+    title: body.title ? String(body.title).slice(0, 120) : null,
+    kind: body.kind || null,
+    mediaId: body.mediaId || null,
+    quality: body.quality || null,
+  });
+  res.json({ ok: true });
+});
+
+app.get("/api/telemetry", (req, res) => {
+  const limit = Number(req.query.limit || 50);
+  res.json({ events: listTelemetry(limit) });
+});
+
+/**
+ * Optional EN→AR description helper (MyMemory — no heavy deps).
+ * Only used when Arabic text is missing on the client.
+ */
+app.post("/api/translate/ar", async (req, res) => {
+  const text = String(req.body?.text || "").trim().slice(0, 1800);
+  if (!text) return res.status(400).json({ error: "Missing text" });
+  if (/[\u0600-\u06FF]/.test(text)) {
+    return res.json({ text, translated: false, reason: "already_arabic" });
+  }
+  const cacheK = `tr:ar:${text.slice(0, 80)}:${text.length}`;
+  const cached = apiCache.get(cacheK);
+  if (cached) {
+    try {
+      return res.json(JSON.parse(cached));
+    } catch {
+      /* miss */
+    }
+  }
+  try {
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|ar`;
+    const upstream = await fetch(url, { headers: { Accept: "application/json" } });
+    const json = await upstream.json();
+    const translated = json?.responseData?.translatedText || text;
+    const payload = { text: translated, translated: translated !== text, provider: "mymemory" };
+    apiCache.set(cacheK, JSON.stringify(payload), 6 * 60 * 60 * 1000);
+    return res.json(payload);
+  } catch (err) {
+    return res.status(502).json({ error: err.message || "Translate failed", text });
+  }
+});
+
+/**
+ * Account bridge stubs toward 7lmmovie favorites/history.
+ * Proxies only when ACCOUNT_API_BASE is set; otherwise returns safe empty payloads.
+ */
+app.get("/api/bridge/favorites", async (req, res) => {
+  if (!config.accountApiBase) {
+    return res.json({
+      items: [],
+      stub: true,
+      message: "ACCOUNT_API_BASE not configured — favorites bridge inactive",
+    });
+  }
+  try {
+    const auth = req.get("authorization") || "";
+    const upstream = await fetch(`${config.accountApiBase}/api/favorites`, {
+      headers: { Accept: "application/json", ...(auth ? { Authorization: auth } : {}) },
+    });
+    const text = await upstream.text();
+    res.status(upstream.status);
+    res.setHeader("Content-Type", upstream.headers.get("content-type") || "application/json");
+    return res.send(text);
+  } catch (err) {
+    return res.status(502).json({ error: err.message || "Favorites bridge failed", items: [] });
+  }
+});
+
+app.get("/api/bridge/history", async (req, res) => {
+  if (!config.accountApiBase) {
+    return res.json({
+      items: [],
+      stub: true,
+      message: "ACCOUNT_API_BASE not configured — history bridge inactive",
+    });
+  }
+  try {
+    const auth = req.get("authorization") || "";
+    const upstream = await fetch(`${config.accountApiBase}/api/history`, {
+      headers: { Accept: "application/json", ...(auth ? { Authorization: auth } : {}) },
+    });
+    const text = await upstream.text();
+    res.status(upstream.status);
+    res.setHeader("Content-Type", upstream.headers.get("content-type") || "application/json");
+    return res.send(text);
+  } catch (err) {
+    return res.status(502).json({ error: err.message || "History bridge failed", items: [] });
+  }
+});
+
+app.post("/api/bridge/history", async (req, res) => {
+  if (!config.accountApiBase) {
+    return res.json({ ok: true, stub: true, saved: req.body || null });
+  }
+  try {
+    const auth = req.get("authorization") || "";
+    const upstream = await fetch(`${config.accountApiBase}/api/history`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        ...(auth ? { Authorization: auth } : {}),
+      },
+      body: JSON.stringify(req.body || {}),
+    });
+    const text = await upstream.text();
+    res.status(upstream.status);
+    res.setHeader("Content-Type", upstream.headers.get("content-type") || "application/json");
+    return res.send(text);
+  } catch (err) {
+    return res.status(502).json({ error: err.message || "History bridge failed" });
+  }
+});
 
 /** Image proxy — Discord Activity CSP blocks external poster hosts */
 app.get("/api/img", async (req, res) => {
@@ -119,17 +294,24 @@ app.use("/api", async (req, res, next) => {
     req.path === "/health" ||
     req.path.startsWith("/discord") ||
     req.path === "/token" ||
-    req.path === "/img"
+    req.path === "/img" ||
+    req.path === "/telemetry" ||
+    req.path.startsWith("/translate") ||
+    req.path.startsWith("/bridge")
   ) {
     return next();
   }
   if (res.headersSent) return next();
 
-  const isTrendingGet = req.method === "GET" && req.path.startsWith("/trending");
-  if (isTrendingGet && trendingCache.body && Date.now() - trendingCache.at < trendingCache.ttlMs) {
-    res.setHeader("Content-Type", "application/json");
-    res.setHeader("X-Cache", "HIT");
-    return res.send(trendingCache.body);
+  const key = cacheKey(req);
+  const cacheable = shouldCacheGet(req);
+  if (cacheable) {
+    const hit = apiCache.get(key);
+    if (hit) {
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("X-Cache", "HIT");
+      return res.send(hit);
+    }
   }
 
   const target = `${config.moviesApiBase}/api${req.url}`;
@@ -143,9 +325,8 @@ app.use("/api", async (req, res, next) => {
     });
     const text = await upstream.text();
     if (res.headersSent) return;
-    if (isTrendingGet && upstream.ok) {
-      trendingCache.body = text;
-      trendingCache.at = Date.now();
+    if (cacheable && upstream.ok) {
+      apiCache.set(key, text, cacheTtlFor(req.path));
     }
     res.status(upstream.status);
     const ct = upstream.headers.get("content-type");
@@ -153,10 +334,13 @@ app.use("/api", async (req, res, next) => {
     res.setHeader("X-Cache", "MISS");
     res.send(text);
   } catch (err) {
-    if (isTrendingGet && trendingCache.body) {
-      res.setHeader("Content-Type", "application/json");
-      res.setHeader("X-Cache", "STALE");
-      return res.send(trendingCache.body);
+    if (cacheable) {
+      const stale = apiCache.get(key);
+      if (stale) {
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader("X-Cache", "STALE");
+        return res.send(stale);
+      }
     }
     if (!res.headersSent) {
       res.status(502).json({ error: err.message || "Upstream proxy failed" });
@@ -174,7 +358,13 @@ app.get("*", (req, res, next) => {
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws/watch" });
-const hub = createWatchHub();
+
+const store = await createRoomStore();
+roomStoreMode = store.mode;
+const hub = createWatchHub({
+  store,
+  onTitleChange: createNotifyHook(),
+});
 
 wss.on("connection", (ws) => {
   ws.on("message", (data) => hub.handleMessage(ws, data));
@@ -184,6 +374,7 @@ wss.on("connection", (ws) => {
 
 server.listen(config.port, () => {
   console.log(`7LM Discord Activity server on :${config.port}`);
+  console.log(`Room store: ${roomStoreMode}`);
   warmMoviesApi();
   setInterval(warmMoviesApi, 4 * 60 * 1000);
 });

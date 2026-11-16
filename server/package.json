@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch src/index.js",
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "bot:register": "node src/registerCommands.js"
   },
   "engines": {
     "node": ">=18"
@@ -14,6 +15,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "redis": "^4.7.1",
     "ws": "^8.18.3"
   }
 }
