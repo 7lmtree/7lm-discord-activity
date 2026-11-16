@@ -13,7 +13,8 @@ import {
 } from "./lib/sdk.js";
 import { connectWatchRoom } from "./lib/watchSocket.js";
 import { saveLastWatched } from "./lib/history.js";
-import { api } from "./lib/api.js";
+import { api, apiBase } from "./lib/api.js";
+import { debugLog } from "./lib/debugLog.js";
 
 export default function App() {
   const [screen, setScreen] = useState("loading");
@@ -38,13 +39,48 @@ export default function App() {
 
     (async () => {
       try {
+        // #region agent log
+        debugLog("B", "App.jsx:boot", "app_effect_start", {
+          inDiscord: isProbablyInDiscord(),
+          apiBase: apiBase(),
+          host: typeof location !== "undefined" ? location.host : "",
+        });
+        // #endregion
         if (!isProbablyInDiscord()) {
           setOutside(true);
           setScreen("loading");
           return;
         }
+        // Probe Discord proxy health before OAuth (hypotheses B/E)
+        try {
+          const healthUrl = `${apiBase()}/api/health`;
+          const t0 = Date.now();
+          const hr = await fetch(healthUrl, { headers: { Accept: "application/json" } });
+          const body = await hr.text();
+          // #region agent log
+          debugLog("B", "App.jsx:health", "proxy_health_result", {
+            url: healthUrl,
+            status: hr.status,
+            ms: Date.now() - t0,
+            ok: hr.ok,
+            snippet: String(body).slice(0, 180),
+          });
+          // #endregion
+        } catch (he) {
+          // #region agent log
+          debugLog("B", "App.jsx:health", "proxy_health_error", {
+            message: he?.message || String(he),
+          });
+          // #endregion
+        }
         const boot = await bootstrapDiscord({ onStatus: setStatus });
         if (cancelled) return;
+        // #region agent log
+        debugLog("C", "App.jsx:boot", "discord_bootstrap_ok", {
+          instanceId: boot?.instanceId || null,
+          userId: boot?.user?.id || null,
+        });
+        // #endregion
         setSession(boot);
         unsubLayout = subscribeLayoutMode(boot.sdk, setLayoutMode);
 
@@ -97,9 +133,19 @@ export default function App() {
           },
         });
         setSocket(sock);
+        // #region agent log
+        debugLog("D", "App.jsx:boot", "watch_socket_created", {
+          instanceId: boot.instanceId,
+        });
+        // #endregion
         setScreen("home");
       } catch (e) {
         if (cancelled) return;
+        // #region agent log
+        debugLog("C", "App.jsx:boot", "boot_failed", {
+          message: e?.message || String(e),
+        });
+        // #endregion
         if (e.message === "OUTSIDE_DISCORD") {
           setOutside(true);
         } else {
