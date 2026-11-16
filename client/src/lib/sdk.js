@@ -1,4 +1,5 @@
-import { DiscordSDK, Common } from "@discord/embedded-app-sdk";
+import { DiscordSDK, Common, patchUrlMappings } from "@discord/embedded-app-sdk";
+import { STREAM_URL_MAPPINGS } from "./api.js";
 
 const CLIENT_ID = import.meta.env.VITE_DISCORD_CLIENT_ID || "";
 export const LAYOUT = Common?.LayoutModeTypeObject || { FOCUSED: 0, PIP: 1, GRID: 2 };
@@ -130,6 +131,13 @@ export async function bootstrapDiscord({ onStatus, timeoutMs = 12000 } = {}) {
 
   if (!isProbablyInDiscord()) {
     throw new Error("OUTSIDE_DISCORD");
+  }
+
+  // Patch fetch/XHR/WebSocket so stream CDN requests hit Discord URL mappings
+  try {
+    patchUrlMappings(STREAM_URL_MAPPINGS);
+  } catch {
+    /* optional outside Discord */
   }
 
   const discordSdk = getSdk();

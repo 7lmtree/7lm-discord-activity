@@ -18,6 +18,10 @@ function pickUrl(value) {
   return "";
 }
 
+function inDiscordFrame() {
+  return typeof window !== "undefined" && /\.discordsays\.com$/i.test(window.location.hostname);
+}
+
 /** Discord Activity CSP blocks external image hosts — route through our /api/img proxy */
 export function mediaSrc(url) {
   const raw = pickUrl(url);
@@ -36,6 +40,38 @@ export function mediaSrc(url) {
     return raw;
   }
 }
+
+/**
+ * Rewrite stream hosts to Discord URL Mapping prefixes.
+ * Requires Portal mappings:
+ *   /emnex      -> api.emnexmovies.cc
+ *   /stream-cdn -> bcdnw.hakunaymatata.com
+ */
+export function streamSrc(url) {
+  const raw = pickUrl(url);
+  if (!raw || !inDiscordFrame()) return raw;
+  try {
+    const u = new URL(raw.startsWith("//") ? `https:${raw}` : raw);
+    const host = u.hostname.toLowerCase();
+    const rest = `${u.pathname}${u.search}${u.hash}`;
+    if (host === "api.emnexmovies.cc") return `${apiBase()}/emnex${rest}`;
+    if (host === "bcdnw.hakunaymatata.com") return `${apiBase()}/stream-cdn${rest}`;
+    if (host.endsWith(".hakunaymatata.com")) {
+      const sub = host.replace(/\.hakunaymatata\.com$/, "");
+      return `${apiBase()}/hakuna/${sub}${rest}`;
+    }
+    return raw;
+  } catch {
+    return raw;
+  }
+}
+
+/** Mappings passed to Discord SDK patchUrlMappings */
+export const STREAM_URL_MAPPINGS = [
+  { prefix: "/emnex", target: "api.emnexmovies.cc" },
+  { prefix: "/stream-cdn", target: "bcdnw.hakunaymatata.com" },
+  { prefix: "/hakuna/{subdomain}", target: "{subdomain}.hakunaymatata.com" },
+];
 
 async function request(path, options = {}, { retries = 2 } = {}) {
   let lastError;
@@ -218,7 +254,7 @@ export async function resolvePlayable(item) {
 
   if (isAnimeItem(item)) {
     const sources = await api.animeSources(id, 1);
-    const url = pickSourceUrl(sources);
+    const url = streamSrc(pickSourceUrl(sources));
     if (!url) throw new Error("ما لقيت مصدر تشغيل للأنمي");
     return {
       mediaId: String(id),
@@ -244,6 +280,7 @@ export async function resolvePlayable(item) {
     url = pickSourceUrl(retry);
   }
 
+  url = streamSrc(url);
   if (!url) throw new Error("ما لقيت مصدر تشغيل");
   return {
     mediaId: String(id),
