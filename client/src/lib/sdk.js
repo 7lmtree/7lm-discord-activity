@@ -40,6 +40,29 @@ function absoluteArt(path) {
   }
 }
 
+function presenceLines({ title, season, episode, kind, people = 1 } = {}) {
+  if (!title) {
+    return {
+      details: "7LM Movie",
+      state: people > 1 ? `${people} في الغرفة` : "يتصفح العناوين",
+    };
+  }
+
+  const details = String(title).slice(0, 128);
+  let state = "";
+  if (season != null && episode != null) {
+    state = `الموسم ${season} · الحلقة ${episode}`;
+  } else if (episode != null) {
+    state = `الحلقة ${episode}`;
+  } else if (kind === "tv" || kind === "anime") {
+    state = kind === "anime" ? "أنمي" : "مسلسل";
+  } else {
+    state = "فيلم";
+  }
+  if (people > 1) state = `${state} · ${people} يشاهدون`;
+  return { details, state: state.slice(0, 128) };
+}
+
 /** Compact UI when Discord shrinks the Activity (PiP / grid). */
 export function subscribeLayoutMode(discordSdk, onMode) {
   if (!discordSdk?.subscribe) return () => {};
@@ -58,35 +81,37 @@ export function subscribeLayoutMode(discordSdk, onMode) {
   };
 }
 
-export async function publishPresence(discordSdk, { title, poster, people = 1 } = {}) {
+export async function publishPresence(
+  discordSdk,
+  { title, poster, people = 1, season, episode, kind } = {}
+) {
   if (!discordSdk?.commands?.setActivity) return;
-  // Prefer portal Rich Presence asset keys; fall back to poster / hosted art URL
+  const { details, state } = presenceLines({ title, season, episode, kind, people });
   const large =
-    (poster && /^https?:\/\//i.test(poster) ? poster : "") || "pip";
+    (poster && /^https?:\/\//i.test(poster) ? poster : "") || (title ? "pip" : "pip");
+
+  const activity = {
+    type: 3,
+    details,
+    state,
+    assets: {
+      large_image: large,
+      large_text: title || "7LM Movie",
+      small_image: "icon",
+      small_text: "7LM Movie",
+    },
+  };
+
   try {
-    await discordSdk.commands.setActivity({
-      activity: {
-        type: 3,
-        details: title ? `يشاهد: ${title}` : "7LM Watch Party",
-        state: people > 1 ? `${people} في الغرفة` : "غرفة مشاهدة",
-        assets: {
-          large_image: large,
-          large_text: title || "7LM Watch",
-          small_image: "icon",
-          small_text: "7LM",
-        },
-      },
-    });
+    await discordSdk.commands.setActivity({ activity });
   } catch {
     try {
       await discordSdk.commands.setActivity({
         activity: {
-          type: 3,
-          details: title ? `يشاهد: ${title}` : "7LM Watch Party",
-          state: people > 1 ? `${people} في الغرفة` : "غرفة مشاهدة",
+          ...activity,
           assets: {
             large_image: absoluteArt("/art/pip.jpg"),
-            large_text: title || "7LM Watch",
+            large_text: title || "7LM Movie",
           },
         },
       });
@@ -144,7 +169,7 @@ export async function bootstrapDiscord({ onStatus, timeoutMs = 12000 } = {}) {
   const auth = await discordSdk.commands.authenticate({ access_token });
 
   try {
-    await publishPresence(discordSdk, { title: "جاهز للمشاهدة", people: 1 });
+    await publishPresence(discordSdk, { people: 1 });
   } catch {
     /* ignore */
   }

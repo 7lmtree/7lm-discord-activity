@@ -14,6 +14,7 @@ import {
 } from "../lib/api.js";
 import { avatarUrl } from "../lib/sdk.js";
 import MediaRow from "../components/MediaRow.jsx";
+import { IconPlay } from "../components/Icons.jsx";
 
 export default function ActivityHome({ session, room, onPick }) {
   const [trending, setTrending] = useState([]);
@@ -187,7 +188,13 @@ export default function ActivityHome({ session, room, onPick }) {
                 disabled={Boolean(busyId)}
                 onClick={() => pick(hero)}
               >
-                {busyId === mediaKey(hero) ? "جاري التحميل…" : "▶ تشغيل الآن"}
+                {busyId === mediaKey(hero) ? (
+                  "جاري التحميل…"
+                ) : (
+                  <>
+                    <IconPlay size={16} /> تشغيل الآن
+                  </>
+                )}
               </button>
             </div>
           </div>

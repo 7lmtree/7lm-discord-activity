@@ -154,7 +154,7 @@ export function extractList(payload) {
 
 export function metaLine(item) {
   const bits = [];
-  if (item?.imdbRatingValue || item?.rating) bits.push(`★ ${item.imdbRatingValue || item.rating}`);
+  if (item?.imdbRatingValue || item?.rating) bits.push(`${item.imdbRatingValue || item.rating}`);
   if (item?.releaseDate) bits.push(String(item.releaseDate).slice(0, 4));
   else if (item?.year) bits.push(String(item.year));
   if (item?.genre) bits.push(String(item.genre).split(",")[0]);

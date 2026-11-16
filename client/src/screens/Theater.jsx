@@ -1,4 +1,17 @@
 import { useEffect, useRef, useState } from "react";
+import videojs from "video.js";
+import "video.js/dist/video-js.css";
+import {
+  IconBack,
+  IconExitFullscreen,
+  IconForward,
+  IconFullscreen,
+  IconMute,
+  IconPause,
+  IconPlay,
+  IconRewind,
+  IconVolume,
+} from "../components/Icons.jsx";
 
 function formatTime(sec = 0) {
   const s = Math.max(0, Math.floor(sec || 0));
@@ -9,15 +22,37 @@ function formatTime(sec = 0) {
   return `${m}:${String(r).padStart(2, "0")}`;
 }
 
+function sourceType(url = "") {
+  if (/\.m3u8(\?|$)/i.test(url) || url.includes("m3u8")) return "application/x-mpegURL";
+  if (/\.mpd(\?|$)/i.test(url)) return "application/dash+xml";
+  if (/\.mp4(\?|$)/i.test(url)) return "video/mp4";
+  return "application/x-mpegURL";
+}
+
+function episodeLabel(state = {}) {
+  if (state.season != null && state.episode != null) {
+    return `الموسم ${state.season} · الحلقة ${state.episode}`;
+  }
+  if (state.episode != null) return `الحلقة ${state.episode}`;
+  if (state.kind === "tv") return "مسلسل";
+  if (state.kind === "anime") return "أنمي";
+  if (state.kind === "movie") return "فيلم";
+  return "";
+}
+
 export default function Theater({ room, onBack, onHostControl }) {
-  const videoRef = useRef(null);
-  const hlsRef = useRef(null);
+  const mountRef = useRef(null);
+  const playerRef = useRef(null);
   const shellRef = useRef(null);
   const applying = useRef(false);
   const lastSent = useRef(0);
   const hideTimer = useRef(null);
+  const hostRef = useRef(Boolean(room.youAreHost));
+  const controlRef = useRef(onHostControl);
   const state = room.state || {};
   const isHost = room.youAreHost;
+  hostRef.current = isHost;
+  controlRef.current = onHostControl;
 
   const [playing, setPlaying] = useState(Boolean(state.playing));
   const [current, setCurrent] = useState(state.currentTime || 0);
@@ -27,67 +62,119 @@ export default function Theater({ room, onBack, onHostControl }) {
   const [volume, setVolume] = useState(1);
   const [showUi, setShowUi] = useState(true);
   const [fs, setFs] = useState(false);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const el = videoRef.current;
-    if (!el || !state.sourceUrl) return undefined;
-    let cancelled = false;
+    const mount = mountRef.current;
+    if (!mount || playerRef.current) return undefined;
 
-    (async () => {
-      if (hlsRef.current) {
-        hlsRef.current.destroy();
-        hlsRef.current = null;
-      }
-      const url = state.sourceUrl;
-      const isHls = /\.m3u8(\?|$)/i.test(url) || url.includes("m3u8");
-      if (isHls && el.canPlayType("application/vnd.apple.mpegurl")) {
-        el.src = url;
-      } else if (isHls) {
-        const { default: Hls } = await import("hls.js");
-        if (cancelled) return;
-        if (Hls.isSupported()) {
-          const hls = new Hls({ enableWorker: true });
-          hlsRef.current = hls;
-          hls.loadSource(url);
-          hls.attachMedia(el);
-        } else {
-          el.src = url;
-        }
-      } else {
-        el.src = url;
-      }
-    })();
+    const videoEl = document.createElement("video");
+    videoEl.className = "video-js vjs-big-play-centered vjs-fill";
+    videoEl.setAttribute("playsinline", "true");
+    mount.appendChild(videoEl);
 
-    return () => {
-      cancelled = true;
-      if (hlsRef.current) {
-        hlsRef.current.destroy();
-        hlsRef.current = null;
+    const player = videojs(videoEl, {
+      controls: false,
+      fluid: true,
+      fill: true,
+      autoplay: false,
+      preload: "auto",
+      playsinline: true,
+      responsive: true,
+      inactivityTimeout: 0,
+      bigPlayButton: false,
+      html5: {
+        vhs: { overrideNative: !videojs.browser.IS_ANY_SAFARI },
+        nativeAudioTracks: false,
+        nativeVideoTracks: false,
+      },
+    });
+
+    playerRef.current = player;
+
+    const onPlay = () => {
+      setPlaying(true);
+      if (!applying.current && hostRef.current) {
+        controlRef.current?.({ playing: true, currentTime: player.currentTime() || 0 });
       }
     };
-  }, [state.sourceUrl]);
+    const onPause = () => {
+      setPlaying(false);
+      setShowUi(true);
+      if (!applying.current && hostRef.current) {
+        controlRef.current?.({ playing: false, currentTime: player.currentTime() || 0 });
+      }
+    };
+    const onTime = () => {
+      const t = player.currentTime() || 0;
+      setCurrent(t);
+      try {
+        const buf = player.buffered();
+        if (buf?.length) setBuffered(buf.end(buf.length - 1));
+      } catch {
+        /* ignore */
+      }
+      if (!hostRef.current || applying.current) return;
+      const now = Date.now();
+      if (now - lastSent.current < 4000) return;
+      lastSent.current = now;
+      controlRef.current?.({ currentTime: t, playing: !player.paused() });
+    };
+    const onMeta = () => setDuration(player.duration() || 0);
+
+    player.ready(() => setReady(true));
+    player.on("play", onPlay);
+    player.on("pause", onPause);
+    player.on("timeupdate", onTime);
+    player.on("loadedmetadata", onMeta);
+    player.on("durationchange", onMeta);
+    player.on("volumechange", () => {
+      setMuted(Boolean(player.muted()));
+      setVolume(Number(player.volume() || 0));
+    });
+
+    return () => {
+      clearTimeout(hideTimer.current);
+      if (playerRef.current && !playerRef.current.isDisposed()) {
+        playerRef.current.dispose();
+      }
+      playerRef.current = null;
+      setReady(false);
+      if (mount) mount.innerHTML = "";
+    };
+  }, []);
 
   useEffect(() => {
-    const el = videoRef.current;
-    if (!el || !state.sourceUrl) return;
-    const drift = Math.abs((el.currentTime || 0) - (state.currentTime || 0));
+    const player = playerRef.current;
+    if (!player || !state.sourceUrl || !ready) return;
+    const type = sourceType(state.sourceUrl);
+    const currentSrc = player.currentSrc?.() || "";
+    if (currentSrc !== state.sourceUrl) {
+      player.src({ src: state.sourceUrl, type });
+    }
+  }, [state.sourceUrl, ready]);
+
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player || !state.sourceUrl || !ready) return;
+    const drift = Math.abs((player.currentTime() || 0) - (state.currentTime || 0));
     applying.current = true;
     if (drift > 1.25) {
       try {
-        el.currentTime = state.currentTime || 0;
+        player.currentTime(state.currentTime || 0);
       } catch {
         /* ignore */
       }
     }
-    if (state.playing) el.play?.().catch(() => {});
-    else el.pause?.();
+    if (state.playing) player.play?.()?.catch?.(() => {});
+    else player.pause?.();
     setPlaying(Boolean(state.playing));
     setCurrent(state.currentTime || 0);
     const t = setTimeout(() => {
       applying.current = false;
-    }, 50);
+    }, 80);
     return () => clearTimeout(t);
-  }, [state.playing, state.currentTime, state.sourceUrl, state.updatedAt]);
+  }, [state.playing, state.currentTime, state.sourceUrl, state.updatedAt, ready]);
 
   function emit(patch) {
     if (!isHost || applying.current) return;
@@ -98,41 +185,40 @@ export default function Theater({ room, onBack, onHostControl }) {
     setShowUi(true);
     clearTimeout(hideTimer.current);
     hideTimer.current = setTimeout(() => {
-      if (videoRef.current && !videoRef.current.paused) setShowUi(false);
+      const player = playerRef.current;
+      if (player && !player.paused()) setShowUi(false);
     }, 2800);
   }
 
-  useEffect(() => () => clearTimeout(hideTimer.current), []);
-
   function togglePlay() {
-    const el = videoRef.current;
-    if (!el || !isHost) return;
-    if (el.paused) {
-      el.play?.().catch(() => {});
-      emit({ playing: true, currentTime: el.currentTime || 0 });
+    const player = playerRef.current;
+    if (!player || !isHost) return;
+    if (player.paused()) {
+      player.play?.()?.catch?.(() => {});
+      emit({ playing: true, currentTime: player.currentTime() || 0 });
     } else {
-      el.pause?.();
-      emit({ playing: false, currentTime: el.currentTime || 0 });
+      player.pause?.();
+      emit({ playing: false, currentTime: player.currentTime() || 0 });
     }
     pokeUi();
   }
 
   function seekTo(ratio) {
-    const el = videoRef.current;
-    if (!el || !isHost || !duration) return;
+    const player = playerRef.current;
+    if (!player || !isHost || !duration) return;
     const next = Math.min(duration, Math.max(0, ratio * duration));
-    el.currentTime = next;
+    player.currentTime(next);
     setCurrent(next);
-    emit({ currentTime: next, playing: !el.paused });
+    emit({ currentTime: next, playing: !player.paused() });
   }
 
   function skip(delta) {
-    const el = videoRef.current;
-    if (!el || !isHost) return;
-    const next = Math.min(duration || 1e9, Math.max(0, (el.currentTime || 0) + delta));
-    el.currentTime = next;
+    const player = playerRef.current;
+    if (!player || !isHost) return;
+    const next = Math.min(duration || 1e9, Math.max(0, (player.currentTime() || 0) + delta));
+    player.currentTime(next);
     setCurrent(next);
-    emit({ currentTime: next, playing: !el.paused });
+    emit({ currentTime: next, playing: !player.paused() });
     pokeUi();
   }
 
@@ -154,71 +240,46 @@ export default function Theater({ room, onBack, onHostControl }) {
 
   const progress = duration ? (current / duration) * 100 : 0;
   const bufferPct = duration ? (buffered / duration) * 100 : 0;
+  const ep = episodeLabel(state);
 
   return (
     <div
-      className={`theater yt ${showUi ? "ui-on" : "ui-off"}`}
+      className={`theater vjs-shell ${showUi ? "ui-on" : "ui-off"}`}
       ref={shellRef}
       onMouseMove={pokeUi}
       onTouchStart={pokeUi}
       onClick={pokeUi}
     >
       <div className={`theater-top ${showUi ? "visible" : ""}`}>
-        <button type="button" className="ghost" onClick={onBack}>
-          ← رجوع
+        <button type="button" className="ghost icon-btn" onClick={onBack}>
+          <IconBack />
+          <span>رجوع</span>
         </button>
         <div className="theater-title">
-          <strong>{state.title || "Watch Party"}</strong>
+          <strong>{state.title || "7LM Movie"}</strong>
+          {ep && <em className="ep-chip">{ep}</em>}
           <span className={isHost ? "badge host" : "badge"}>{isHost ? "Host" : "Synced"}</span>
         </div>
         <span className="status">{isHost ? "أنت تتحكّم" : "متابعة مباشرة"}</span>
       </div>
 
-      <div className="stage">
+      <div className="stage vjs-stage">
         {state.sourceUrl ? (
-          <video
-            ref={videoRef}
-            playsInline
+          <div
+            ref={mountRef}
+            data-vjs-player
             onClick={(e) => {
               e.stopPropagation();
               togglePlay();
             }}
-            onPlay={() => {
-              setPlaying(true);
-              if (!applying.current) emit({ playing: true, currentTime: videoRef.current?.currentTime || 0 });
-            }}
-            onPause={() => {
-              setPlaying(false);
-              setShowUi(true);
-              if (!applying.current) emit({ playing: false, currentTime: videoRef.current?.currentTime || 0 });
-            }}
-            onTimeUpdate={() => {
-              const el = videoRef.current;
-              if (!el) return;
-              setCurrent(el.currentTime || 0);
-              if (el.buffered?.length) {
-                try {
-                  setBuffered(el.buffered.end(el.buffered.length - 1));
-                } catch {
-                  /* ignore */
-                }
-              }
-              if (!isHost || applying.current) return;
-              const now = Date.now();
-              if (now - lastSent.current < 4000) return;
-              lastSent.current = now;
-              emit({ currentTime: el.currentTime || 0, playing: !el.paused });
-            }}
-            onLoadedMetadata={() => setDuration(videoRef.current?.duration || 0)}
-            onDurationChange={() => setDuration(videoRef.current?.duration || 0)}
           />
         ) : (
           <p className="status">ما تم اختيار مصدر بعد</p>
         )}
 
-        {showUi && (
+        {showUi && state.sourceUrl && (
           <button type="button" className="big-play" onClick={togglePlay} disabled={!isHost}>
-            {playing ? "❚❚" : "▶"}
+            {playing ? <IconPause size={28} /> : <IconPlay size={28} />}
           </button>
         )}
       </div>
@@ -240,26 +301,28 @@ export default function Theater({ room, onBack, onHostControl }) {
 
         <div className="controls-row">
           <div className="controls-left">
-            <button type="button" className="ctrl" onClick={togglePlay} disabled={!isHost}>
-              {playing ? "❚❚" : "▶"}
+            <button type="button" className="ctrl" onClick={togglePlay} disabled={!isHost} aria-label="تشغيل">
+              {playing ? <IconPause /> : <IconPlay />}
             </button>
-            <button type="button" className="ctrl" onClick={() => skip(-10)} disabled={!isHost}>
-              -10
+            <button type="button" className="ctrl" onClick={() => skip(-10)} disabled={!isHost} aria-label="رجوع 10">
+              <IconRewind />
+              <span className="ctrl-label">10</span>
             </button>
-            <button type="button" className="ctrl" onClick={() => skip(10)} disabled={!isHost}>
-              +10
+            <button type="button" className="ctrl" onClick={() => skip(10)} disabled={!isHost} aria-label="تقديم 10">
+              <IconForward />
+              <span className="ctrl-label">10</span>
             </button>
             <button
               type="button"
               className="ctrl"
+              aria-label="الصوت"
               onClick={() => {
-                const el = videoRef.current;
-                if (!el) return;
-                el.muted = !el.muted;
-                setMuted(el.muted);
+                const player = playerRef.current;
+                if (!player) return;
+                player.muted(!player.muted());
               }}
             >
-              {muted || volume === 0 ? "🔇" : "🔊"}
+              {muted || volume === 0 ? <IconMute /> : <IconVolume />}
             </button>
             <input
               className="vol"
@@ -269,13 +332,13 @@ export default function Theater({ room, onBack, onHostControl }) {
               step="0.05"
               value={muted ? 0 : volume}
               onChange={(e) => {
-                const el = videoRef.current;
+                const player = playerRef.current;
                 const v = Number(e.target.value);
                 setVolume(v);
                 setMuted(v === 0);
-                if (el) {
-                  el.volume = v;
-                  el.muted = v === 0;
+                if (player) {
+                  player.volume(v);
+                  player.muted(v === 0);
                 }
               }}
             />
@@ -284,8 +347,8 @@ export default function Theater({ room, onBack, onHostControl }) {
             </span>
           </div>
           <div className="controls-right">
-            <button type="button" className="ctrl" onClick={toggleFs}>
-              {fs ? "⛶" : "⛶"}
+            <button type="button" className="ctrl" onClick={toggleFs} aria-label="ملء الشاشة">
+              {fs ? <IconExitFullscreen /> : <IconFullscreen />}
             </button>
           </div>
         </div>

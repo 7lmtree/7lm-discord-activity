@@ -64,6 +64,9 @@ export default function App() {
                 title: msg.state?.title,
                 poster: msg.state?.poster || msg.state?.banner,
                 people: (msg.participants || []).length || 1,
+                season: msg.state?.season,
+                episode: msg.state?.episode,
+                kind: msg.state?.kind,
               });
             }
             if (msg.type === "participants") {
@@ -103,8 +106,20 @@ export default function App() {
       title: room.state?.title,
       poster: room.state?.poster || room.state?.banner,
       people: room.participants?.length || 1,
+      season: room.state?.season,
+      episode: room.state?.episode,
+      kind: room.state?.kind,
     });
-  }, [session?.sdk, room.state?.title, room.state?.poster, room.state?.banner, room.participants?.length]);
+  }, [
+    session?.sdk,
+    room.state?.title,
+    room.state?.poster,
+    room.state?.banner,
+    room.state?.season,
+    room.state?.episode,
+    room.state?.kind,
+    room.participants?.length,
+  ]);
 
   const onPick = useCallback(
     (patch) => {
@@ -141,6 +156,8 @@ export default function App() {
           title={room.state?.title}
           poster={room.state?.poster || room.state?.banner}
           peopleCount={room.participants?.length || 0}
+          season={room.state?.season}
+          episode={room.state?.episode}
         />
       );
     }

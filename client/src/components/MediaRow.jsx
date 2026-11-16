@@ -1,4 +1,5 @@
 import { mediaKey, posterUrl, titleText, metaLine } from "../lib/api.js";
+import { IconPlay } from "./Icons.jsx";
 
 export default function MediaRow({ title, items = [], loading = false, onPick }) {
   return (
@@ -26,7 +27,7 @@ export default function MediaRow({ title, items = [], loading = false, onPick })
               <div className="tile-art">
                 {poster ? <img src={poster} alt="" loading="lazy" /> : <div className="skeleton-poster" />}
                 <span className="tile-play" aria-hidden>
-                  ▶
+                  <IconPlay size={18} />
                 </span>
               </div>
               <p className="tile-title">{titleText(item)}</p>

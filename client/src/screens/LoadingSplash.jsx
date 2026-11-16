@@ -57,7 +57,7 @@ export default function LoadingSplash({ status, error, outside }) {
           <div className="error-box">
             افتح الأكتيفتي من داخل Discord:
             <br />
-            Voice channel → Activities → 7LM Watch Party
+            Voice channel / Activities / 7LM Movie
           </div>
         )}
 
