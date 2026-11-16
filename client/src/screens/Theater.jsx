@@ -160,6 +160,7 @@ export default function Theater({ room, onBack, onHostControl }) {
       className={`theater yt ${showUi ? "ui-on" : "ui-off"}`}
       ref={shellRef}
       onMouseMove={pokeUi}
+      onTouchStart={pokeUi}
       onClick={pokeUi}
     >
       <div className={`theater-top ${showUi ? "visible" : ""}`}>
@@ -225,10 +226,11 @@ export default function Theater({ room, onBack, onHostControl }) {
       <div className={`controls ${showUi ? "visible" : ""}`}>
         <div
           className={`scrub ${isHost ? "" : "locked"}`}
-          onClick={(e) => {
+          onPointerDown={(e) => {
             if (!isHost) return;
             const rect = e.currentTarget.getBoundingClientRect();
-            seekTo((e.clientX - rect.left) / rect.width);
+            const x = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
+            seekTo((x - rect.left) / Math.max(rect.width, 1));
           }}
         >
           <div className="scrub-buffer" style={{ width: `${bufferPct}%` }} />

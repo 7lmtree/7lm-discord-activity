@@ -9,6 +9,7 @@ import {
   mediaKey,
   metaLine,
   posterUrl,
+  resolvePlayable,
   titleText,
 } from "../lib/api.js";
 import { avatarUrl } from "../lib/sdk.js";
@@ -109,37 +110,11 @@ export default function ActivityHome({ session, room, onPick }) {
   }
 
   async function pick(item) {
-    const id = item.id || item.movieId || item.contentId || item.subjectId || item.detailPath;
-    if (!id) return;
     try {
       setErr("");
       setBusyId(mediaKey(item));
-      let url = "";
-      if (isAnimeItem(item)) {
-        const sources = await api.animeSources(id, 1);
-        const list = Array.isArray(sources)
-          ? sources
-          : sources?.sources || sources?.data || sources?.episodes || [];
-        const best = list[0];
-        url = best?.url || best?.file || best?.src || sources?.url || "";
-      } else {
-        const sources = await api.sources(id);
-        const list = Array.isArray(sources) ? sources : sources?.sources || sources?.data || [];
-        const best =
-          [...list].sort((a, b) => (b.resolution || 0) - (a.resolution || 0))[0] || list[0];
-        url = best?.url || best?.file || best?.src || "";
-      }
-      if (!url) throw new Error("ما لقيت مصدر تشغيل");
-      onPick({
-        mediaId: String(id),
-        kind: isAnimeItem(item) ? "anime" : isSeriesItem(item) ? "tv" : "movie",
-        title: titleText(item),
-        poster: posterUrl(item),
-        banner: bannerUrl(item),
-        sourceUrl: url,
-        playing: true,
-        currentTime: 0,
-      });
+      const playable = await resolvePlayable(item);
+      onPick(playable);
     } catch (e) {
       setErr(e.message || "ما قدرت أشغّل العنوان");
     } finally {

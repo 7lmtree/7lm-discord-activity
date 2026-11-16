@@ -126,7 +126,15 @@ export function isAnimeItem(item) {
 
 export function isSeriesItem(item) {
   if (isAnimeItem(item)) return true;
-  return item?.subjectType === 2 || item?.domainType === 1 || item?.type === "tv";
+  const type = String(item?.type || item?.category || item?.contentType || "").toLowerCase();
+  return (
+    item?.subjectType === 2 ||
+    item?.domainType === 1 ||
+    type === "tv" ||
+    type === "series" ||
+    type === "show" ||
+    Boolean(item?.episodeCount || item?.totalEpisodes || item?.seasons || item?.seasonCount)
+  );
 }
 
 export function mediaKey(item) {
@@ -154,4 +162,74 @@ export function metaLine(item) {
   if (isSeriesItem(item)) bits.push(isAnimeItem(item) ? "Anime" : "Series");
   else bits.push("Movie");
   return bits.filter(Boolean).join(" · ");
+}
+
+export function pickSourceUrl(payload) {
+  const list = Array.isArray(payload)
+    ? payload
+    : payload?.sources?.length
+      ? payload.sources
+      : payload?.processedSources?.length
+        ? payload.processedSources
+        : payload?.data?.length
+          ? payload.data
+          : [];
+  const best =
+    [...list].sort((a, b) => (b.resolution || 0) - (a.resolution || 0))[0] || list[0] || null;
+  return (
+    best?.url ||
+    best?.streamUrl ||
+    best?.file ||
+    best?.src ||
+    payload?.url ||
+    payload?.streamUrl ||
+    ""
+  );
+}
+
+export async function resolvePlayable(item) {
+  const id = item.id || item.movieId || item.contentId || item.subjectId || item.detailPath;
+  if (!id) throw new Error("عنوان بدون معرف");
+
+  if (isAnimeItem(item)) {
+    const sources = await api.animeSources(id, 1);
+    const url = pickSourceUrl(sources);
+    if (!url) throw new Error("ما لقيت مصدر تشغيل للأنمي");
+    return {
+      mediaId: String(id),
+      kind: "anime",
+      title: titleText(item),
+      poster: posterUrl(item),
+      banner: bannerUrl(item),
+      sourceUrl: url,
+      playing: true,
+      currentTime: 0,
+      season: 1,
+      episode: 1,
+    };
+  }
+
+  const series = isSeriesItem(item);
+  const sources = await api.sources(id, series ? 1 : undefined, series ? 1 : undefined);
+  let url = pickSourceUrl(sources);
+
+  // Some titles only resolve after season/episode even if classified poorly
+  if (!url && !series) {
+    const retry = await api.sources(id, 1, 1);
+    url = pickSourceUrl(retry);
+  }
+
+  if (!url) throw new Error("ما لقيت مصدر تشغيل");
+  return {
+    mediaId: String(id),
+    kind: series ? "tv" : "movie",
+    title: titleText(item),
+    poster: posterUrl(item),
+    banner: bannerUrl(item),
+    sourceUrl: url,
+    playing: true,
+    currentTime: 0,
+    season: series ? 1 : null,
+    episode: series ? 1 : null,
+  };
 }
