@@ -70,6 +70,12 @@ export const api = {
   trending: (perPage = 24) => request(`/api/trending?perPage=${perPage}`, {}, { retries: 3 }),
   search: (q, page = 1) =>
     request(`/api/search/${encodeURIComponent(q)}?page=${page}`, {}, { retries: 2 }),
+  animeTrending: (page = 1) =>
+    request(`/api/anime/trending?page=${page}`, {}, { retries: 2 }),
+  animePopular: (page = 1) =>
+    request(`/api/anime/popular?page=${page}`, {}, { retries: 2 }),
+  animeSearch: (q, page = 1) =>
+    request(`/api/anime/search/${encodeURIComponent(q)}?page=${page}`, {}, { retries: 2 }),
   movie: (id) => request(`/api/movie/${id}`),
   sources: (id, season, episode) => {
     const q = new URLSearchParams();
@@ -78,6 +84,8 @@ export const api = {
     const qs = q.toString();
     return request(`/api/sources/${id}${qs ? `?${qs}` : ""}`, {}, { retries: 2 });
   },
+  animeSources: (id, ep = 1) =>
+    request(`/api/anime/sources/${id}/${ep}`, {}, { retries: 2 }),
 };
 
 export function posterUrl(item) {
@@ -92,8 +100,39 @@ export function posterUrl(item) {
   );
 }
 
+export function bannerUrl(item) {
+  return pickUrl(item?.banner) || pickUrl(item?.coverHorizontalUrl) || posterUrl(item);
+}
+
 export function titleText(item) {
-  return item?.title || item?.name || item?.localName || "Untitled";
+  return (
+    item?.titles?.english ||
+    item?.titles?.romaji ||
+    item?.title ||
+    item?.name ||
+    item?.localName ||
+    "Untitled"
+  );
+}
+
+export function isAnimeItem(item) {
+  const poster = typeof item?.poster === "string" ? item.poster : item?.poster?.url || "";
+  return (
+    item?.type === "anime" ||
+    Boolean(item?.idMal) ||
+    (Boolean(item?.format) && Boolean(item?.episodes != null) && /anilist/i.test(poster))
+  );
+}
+
+export function isSeriesItem(item) {
+  if (isAnimeItem(item)) return true;
+  return item?.subjectType === 2 || item?.domainType === 1 || item?.type === "tv";
+}
+
+export function mediaKey(item) {
+  return String(
+    item?.id || item?.movieId || item?.contentId || item?.subjectId || item?.detailPath || titleText(item)
+  );
 }
 
 export function extractList(payload) {
@@ -103,4 +142,16 @@ export function extractList(payload) {
   if (Array.isArray(payload?.items)) return payload.items;
   if (Array.isArray(payload?.recommendItems)) return payload.recommendItems;
   return [];
+}
+
+export function metaLine(item) {
+  const bits = [];
+  if (item?.imdbRatingValue || item?.rating) bits.push(`★ ${item.imdbRatingValue || item.rating}`);
+  if (item?.releaseDate) bits.push(String(item.releaseDate).slice(0, 4));
+  else if (item?.year) bits.push(String(item.year));
+  if (item?.genre) bits.push(String(item.genre).split(",")[0]);
+  else if (Array.isArray(item?.genres) && item.genres[0]) bits.push(item.genres[0]);
+  if (isSeriesItem(item)) bits.push(isAnimeItem(item) ? "Anime" : "Series");
+  else bits.push("Movie");
+  return bits.filter(Boolean).join(" · ");
 }

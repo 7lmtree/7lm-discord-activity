@@ -1,13 +1,28 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DiscordSDK, Events } from "@discord/embedded-app-sdk";
-import { api, extractList, posterUrl, titleText } from "../lib/api.js";
+import {
+  api,
+  bannerUrl,
+  extractList,
+  isAnimeItem,
+  isSeriesItem,
+  mediaKey,
+  metaLine,
+  posterUrl,
+  titleText,
+} from "../lib/api.js";
 import { avatarUrl } from "../lib/sdk.js";
+import MediaRow from "../components/MediaRow.jsx";
 
 export default function ActivityHome({ session, room, onPick }) {
-  const [items, setItems] = useState([]);
+  const [trending, setTrending] = useState([]);
+  const [anime, setAnime] = useState([]);
+  const [searchHits, setSearchHits] = useState([]);
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
+  const [searching, setSearching] = useState(false);
   const [err, setErr] = useState("");
+  const [busyId, setBusyId] = useState("");
   const [discordPeople, setDiscordPeople] = useState([]);
 
   useEffect(() => {
@@ -15,10 +30,15 @@ export default function ActivityHome({ session, room, onPick }) {
     (async () => {
       try {
         setLoading(true);
-        const data = await api.trending(24);
-        if (!cancelled) setItems(extractList(data).slice(0, 24));
+        const [trendRes, animeRes] = await Promise.all([
+          api.trending(36),
+          api.animeTrending(1).catch(() => ({ items: [] })),
+        ]);
+        if (cancelled) return;
+        setTrending(extractList(trendRes).slice(0, 36));
+        setAnime(extractList(animeRes).slice(0, 24));
       } catch (e) {
-        if (!cancelled) setErr(e.message || "Failed to load titles");
+        if (!cancelled) setErr(e.message || "فشل تحميل العناوين");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -31,7 +51,6 @@ export default function ActivityHome({ session, room, onPick }) {
   useEffect(() => {
     const sdk = session.sdk;
     if (!(sdk instanceof DiscordSDK)) return undefined;
-
     let alive = true;
     (async () => {
       try {
@@ -41,10 +60,7 @@ export default function ActivityHome({ session, room, onPick }) {
         /* optional */
       }
     })();
-
-    const handler = (payload) => {
-      setDiscordPeople(payload?.participants || []);
-    };
+    const handler = (payload) => setDiscordPeople(payload?.participants || []);
     sdk.subscribe(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, handler);
     return () => {
       alive = false;
@@ -52,47 +68,82 @@ export default function ActivityHome({ session, room, onPick }) {
     };
   }, [session.sdk]);
 
+  const series = useMemo(
+    () => trending.filter((x) => isSeriesItem(x) && !isAnimeItem(x)).slice(0, 18),
+    [trending]
+  );
+  const movies = useMemo(
+    () => trending.filter((x) => !isSeriesItem(x)).slice(0, 18),
+    [trending]
+  );
+  const hero = trending[0] || anime[0] || null;
+
   async function search(e) {
     e.preventDefault();
-    if (!q.trim()) return;
+    if (!q.trim()) {
+      setSearchHits([]);
+      return;
+    }
     try {
-      setLoading(true);
+      setSearching(true);
       setErr("");
-      const data = await api.search(q.trim());
-      setItems(extractList(data).slice(0, 24));
+      const [movieRes, animeRes] = await Promise.all([
+        api.search(q.trim()),
+        api.animeSearch(q.trim()).catch(() => ({ items: [] })),
+      ]);
+      const merged = [...extractList(movieRes), ...extractList(animeRes)];
+      const seen = new Set();
+      setSearchHits(
+        merged.filter((item) => {
+          const key = mediaKey(item);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        }).slice(0, 30)
+      );
     } catch (e2) {
-      setErr(e2.message || "Search failed");
+      setErr(e2.message || "فشل البحث");
     } finally {
-      setLoading(false);
+      setSearching(false);
     }
   }
 
-  function mediaId(item) {
-    return item.id || item.movieId || item.contentId || item.subjectId || item.detailPath;
-  }
-
   async function pick(item) {
-    const id = mediaId(item);
+    const id = item.id || item.movieId || item.contentId || item.subjectId || item.detailPath;
     if (!id) return;
     try {
       setErr("");
-      const sources = await api.sources(id);
-      const list = Array.isArray(sources) ? sources : sources?.sources || sources?.data || [];
-      const best =
-        [...list].sort((a, b) => (b.resolution || 0) - (a.resolution || 0))[0] || list[0];
-      const url = best?.url || best?.file || best?.src;
+      setBusyId(mediaKey(item));
+      let url = "";
+      if (isAnimeItem(item)) {
+        const sources = await api.animeSources(id, 1);
+        const list = Array.isArray(sources)
+          ? sources
+          : sources?.sources || sources?.data || sources?.episodes || [];
+        const best = list[0];
+        url = best?.url || best?.file || best?.src || sources?.url || "";
+      } else {
+        const sources = await api.sources(id);
+        const list = Array.isArray(sources) ? sources : sources?.sources || sources?.data || [];
+        const best =
+          [...list].sort((a, b) => (b.resolution || 0) - (a.resolution || 0))[0] || list[0];
+        url = best?.url || best?.file || best?.src || "";
+      }
       if (!url) throw new Error("ما لقيت مصدر تشغيل");
       onPick({
         mediaId: String(id),
-        kind: item.subjectType === 2 || item.domainType === 1 || item.type === "tv" ? "tv" : "movie",
+        kind: isAnimeItem(item) ? "anime" : isSeriesItem(item) ? "tv" : "movie",
         title: titleText(item),
         poster: posterUrl(item),
+        banner: bannerUrl(item),
         sourceUrl: url,
         playing: true,
         currentTime: 0,
       });
     } catch (e) {
       setErr(e.message || "ما قدرت أشغّل العنوان");
+    } finally {
+      setBusyId("");
     }
   }
 
@@ -107,79 +158,84 @@ export default function ActivityHome({ session, room, onPick }) {
     }));
 
   return (
-    <div className="home">
-      <header className="topbar">
-        <h1>
-          7LM<span style={{ color: "var(--accent)" }}> Watch</span>
-        </h1>
-        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-          {room.youAreHost ? (
-            <span className="badge host">Host</span>
-          ) : (
-            <span className="badge">Viewer</span>
-          )}
-          <span className="status" style={{ fontSize: "0.8rem" }}>
-            {session.user?.global_name || session.user?.username}
+    <div className="browse">
+      <header className="nav">
+        <div className="nav-brand">
+          <span className="nav-mark">7</span>
+          <strong>
+            7LM<span>WATCH</span>
+          </strong>
+        </div>
+        <form className="nav-search" onSubmit={search}>
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="ابحث في الأفلام والأنمي…"
+          />
+          <button type="submit">{searching ? "…" : "بحث"}</button>
+        </form>
+        <div className="nav-meta">
+          <span className={room.youAreHost ? "badge host" : "badge"}>
+            {room.youAreHost ? "Host" : "Viewer"}
           </span>
+          <div className="avatar-stack" title="في الجلسة">
+            {people.slice(0, 5).map((p) =>
+              p.avatar ? (
+                <img key={p.userId} className="avatar" src={p.avatar} alt="" />
+              ) : (
+                <span key={p.userId} className="avatar" />
+              )
+            )}
+          </div>
         </div>
       </header>
 
-      <div className="layout">
-        <main className="main">
-          <form className="search" onSubmit={search}>
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="ابحث عن فيلم أو مسلسل…"
-            />
-            <button type="submit">بحث</button>
-          </form>
+      {err && <div className="error-box browse-error">{err}</div>}
 
-          <h2 className="row-title">{q ? "نتائج البحث" : "ترند الآن"}</h2>
-          {err && <div className="error-box">{err}</div>}
-          <div className="grid">
-            {loading &&
-              !items.length &&
-              Array.from({ length: 12 }).map((_, i) => (
-                <div key={`sk-${i}`} className="card skeleton-card" aria-hidden>
-                  <div className="skeleton-poster" />
-                  <div className="skeleton-line" />
-                </div>
-              ))}
-            {items.map((item) => {
-              const id = mediaId(item) || titleText(item);
-              const poster = posterUrl(item);
-              return (
-                <button key={id} type="button" className="card" onClick={() => pick(item)}>
-                  {poster ? <img src={poster} alt="" loading="lazy" /> : <div className="skeleton-poster" />}
-                  <p>{titleText(item)}</p>
-                </button>
-              );
-            })}
+      {!q.trim() && hero && (
+        <section
+          className="hero"
+          style={{ "--hero-image": `url(${bannerUrl(hero) || posterUrl(hero)})` }}
+        >
+          <div className="hero-shade" />
+          <div className="hero-copy">
+            <p className="hero-kicker">7LM Watch Party</p>
+            <h1>{titleText(hero)}</h1>
+            <p className="hero-meta">{metaLine(hero)}</p>
+            <p className="hero-desc">
+              اختر عنوان وابدأ الجلسة — الهوست يتحكّم، والكل يشوف بنفس التوقيت داخل القناة.
+            </p>
+            <div className="hero-actions">
+              <button
+                type="button"
+                className="primary play-cta"
+                disabled={Boolean(busyId)}
+                onClick={() => pick(hero)}
+              >
+                {busyId === mediaKey(hero) ? "جاري التحميل…" : "▶ تشغيل الآن"}
+              </button>
+            </div>
           </div>
-        </main>
+        </section>
+      )}
 
-        <aside className="side">
-          <h2>في الجلسة</h2>
-          <ul className="people">
-            {people.map((p) => (
-              <li key={p.userId}>
-                {p.avatar ? (
-                  <img className="avatar" src={p.avatar} alt="" />
-                ) : (
-                  <span className="avatar" />
-                )}
-                <span>
-                  {p.username}
-                  {room.hostUserId === p.userId || room.state?.hostUserId === p.userId
-                    ? " · host"
-                    : ""}
-                </span>
-              </li>
-            ))}
-            {!people.length && <li className="status">ما فيه أحد بعد</li>}
-          </ul>
-        </aside>
+      <div className="browse-body">
+        {q.trim() && (
+          <MediaRow
+            title={`نتائج «${q.trim()}»`}
+            items={searchHits}
+            loading={searching}
+            onPick={pick}
+          />
+        )}
+        {!q.trim() && (
+          <>
+            <MediaRow title="ترند الآن" items={trending.slice(0, 18)} loading={loading} onPick={pick} />
+            <MediaRow title="مسلسلات" items={series} loading={loading} onPick={pick} />
+            <MediaRow title="أفلام" items={movies} loading={loading} onPick={pick} />
+            <MediaRow title="أنمي" items={anime} loading={loading} onPick={pick} />
+          </>
+        )}
       </div>
     </div>
   );
