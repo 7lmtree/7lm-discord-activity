@@ -116,17 +116,34 @@ export async function registerSlashCommands() {
   if (!config.discordBotToken || !config.discordClientId) {
     throw new Error("DISCORD_BOT_TOKEN and DISCORD_CLIENT_ID required");
   }
-  const res = await fetch(
-    `https://discord.com/api/v10/applications/${config.discordClientId}/commands`,
-    {
-      method: "PUT",
-      headers: {
-        Authorization: `Bot ${config.discordBotToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(BOT_COMMANDS),
-    }
-  );
+  const base = `https://discord.com/api/v10/applications/${config.discordClientId}/commands`;
+  const headers = {
+    Authorization: `Bot ${config.discordBotToken}`,
+    "Content-Type": "application/json",
+  };
+
+  // Preserve Discord Activity PRIMARY_ENTRY_POINT (type 4) — bulk PUT cannot drop it.
+  let entryPoints = [];
+  const existingRes = await fetch(base, { headers });
+  if (existingRes.ok) {
+    const existing = await existingRes.json();
+    entryPoints = (existing || [])
+      .filter((c) => c.type === 4)
+      .map((c) => ({
+        name: c.name,
+        type: c.type,
+        description: c.description || "",
+        ...(c.handler != null ? { handler: c.handler } : {}),
+        ...(c.integration_types ? { integration_types: c.integration_types } : {}),
+        ...(c.contexts ? { contexts: c.contexts } : {}),
+      }));
+  }
+
+  const res = await fetch(base, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify([...entryPoints, ...BOT_COMMANDS]),
+  });
   const text = await res.text();
   if (!res.ok) throw new Error(`Register failed ${res.status}: ${text}`);
   return JSON.parse(text);
