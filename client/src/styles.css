@@ -62,6 +62,7 @@ button {
   min-height: 100dvh;
   width: 100%;
   max-width: 100%;
+  min-width: 0;
   overflow-x: hidden;
 }
 
@@ -336,6 +337,9 @@ button {
 .browse {
   min-height: 100dvh;
   background: #050507;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 .nav {
@@ -520,10 +524,14 @@ button {
   padding: 0.4rem 0 2rem;
   display: grid;
   gap: 0.35rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .media-row {
   padding: 0.35rem 0 0.55rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .media-row-head {
@@ -538,10 +546,12 @@ button {
 }
 
 .media-rail {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(108px, 132px);
+  display: flex;
+  flex-direction: row;
   gap: 0.7rem;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
   padding: 0.15rem 1rem 0.65rem;
@@ -549,9 +559,24 @@ button {
   scroll-padding-inline: 1rem;
   scrollbar-width: thin;
   overscroll-behavior-x: contain;
+  overscroll-behavior-y: none;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-x;
   direction: rtl;
+  cursor: grab;
+}
+
+.media-rail.is-dragging {
+  cursor: grabbing;
+  scroll-snap-type: none;
+  user-select: none;
+}
+
+.media-rail > .tile,
+.media-rail > .skeleton-card {
+  flex: 0 0 clamp(108px, 18vw, 132px);
+  width: clamp(108px, 18vw, 132px);
+  max-width: 132px;
 }
 
 .media-rail::-webkit-scrollbar {
@@ -948,8 +973,11 @@ button {
 
 /* Discord iframe / tablet / phone */
 @media (max-width: 900px) {
-  .media-rail {
-    grid-auto-columns: minmax(104px, 124px);
+  .media-rail > .tile,
+  .media-rail > .skeleton-card {
+    flex-basis: clamp(104px, 20vw, 124px);
+    width: clamp(104px, 20vw, 124px);
+    max-width: 124px;
   }
 
   .hero-copy h1 {
@@ -983,9 +1011,15 @@ button {
   }
 
   .media-rail {
-    grid-auto-columns: minmax(92px, 110px);
     gap: 0.55rem;
     padding-inline: 0.75rem;
+  }
+
+  .media-rail > .tile,
+  .media-rail > .skeleton-card {
+    flex-basis: clamp(92px, 26vw, 110px);
+    width: clamp(92px, 26vw, 110px);
+    max-width: 110px;
   }
 
   .media-row-head {
@@ -1024,8 +1058,11 @@ button {
     width: 100%;
   }
 
-  .media-rail {
-    grid-auto-columns: 86px;
+  .media-rail > .tile,
+  .media-rail > .skeleton-card {
+    flex-basis: 86px;
+    width: 86px;
+    max-width: 86px;
   }
 
   .tile-meta {
@@ -1061,9 +1098,14 @@ button {
 
   .ctrl,
   .big-play,
-  .play-cta,
-  .tile {
+  .play-cta {
     touch-action: manipulation;
+  }
+
+  /* Tiles must not steal horizontal pan from the rail (Discord iframe). */
+  .media-rail,
+  .media-rail .tile {
+    touch-action: pan-x;
   }
 
   .media-rail {
