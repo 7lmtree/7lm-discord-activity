@@ -170,8 +170,14 @@ app.post("/api/translate/ar", async (req, res) => {
     const upstream = await fetch(url, { headers: { Accept: "application/json" } });
     const json = await upstream.json();
     const translated = json?.responseData?.translatedText || text;
+    // MyMemory returns quota warnings as "translatedText" — never show/cache those.
+    if (/MYMEMORY WARNING/i.test(translated) || /AVAILABLE FREE TRANSLATIONS/i.test(translated)) {
+      return res.json({ text, translated: false, reason: "quota", provider: "mymemory" });
+    }
     const payload = { text: translated, translated: translated !== text, provider: "mymemory" };
-    apiCache.set(cacheK, JSON.stringify(payload), 6 * 60 * 60 * 1000);
+    if (payload.translated) {
+      apiCache.set(cacheK, JSON.stringify(payload), 6 * 60 * 60 * 1000);
+    }
     return res.json(payload);
   } catch (err) {
     return res.status(502).json({ error: err.message || "Translate failed", text });
