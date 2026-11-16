@@ -99,6 +99,19 @@ async function request(path, options = {}, { retries = 2 } = {}) {
         } catch {
           /* ignore */
         }
+        // #region agent log
+        try {
+          const { debugLog } = await import("./debugLog.js");
+          debugLog("F", "api.js:request", "http_not_ok", {
+            path,
+            status: res.status,
+            attempt,
+            message: String(message).slice(0, 160),
+          });
+        } catch {
+          /* ignore */
+        }
+        // #endregion
         throw new Error(message);
       }
       return res.json();

@@ -74,12 +74,38 @@ async function exchangeDiscordToken(req, res) {
     });
     const json = await tokenRes.json();
     if (!tokenRes.ok) {
+      // #region agent log
+      console.log(
+        "[debug-78922e]",
+        JSON.stringify({
+          sessionId: "78922e",
+          hypothesisId: "F",
+          location: "index.js:token",
+          message: "token_exchange_not_ok",
+          data: { status: tokenRes.status, error: json?.error || null },
+          timestamp: Date.now(),
+        })
+      );
+      // #endregion
       return res.status(tokenRes.status).json({
         error: json?.error_description || json?.error || "Token exchange failed",
       });
     }
     return res.json({ access_token: json.access_token });
   } catch (err) {
+    // #region agent log
+    console.log(
+      "[debug-78922e]",
+      JSON.stringify({
+        sessionId: "78922e",
+        hypothesisId: "F",
+        location: "index.js:token",
+        message: "token_exchange_throw",
+        data: { error: err?.message || String(err) },
+        timestamp: Date.now(),
+      })
+    );
+    // #endregion
     return res.status(500).json({ error: err.message || "Token exchange failed" });
   }
 }
@@ -128,6 +154,20 @@ attachDiscordInteractions(app, { getHealth: healthPayload });
 /** Lightweight playback telemetry */
 app.post("/api/telemetry", (req, res) => {
   const body = req.body || {};
+  // #region agent log
+  if (body.type === "debug" || body.kind === "debug") {
+    console.log(
+      "[debug-78922e]",
+      JSON.stringify({
+        sessionId: "78922e",
+        hypothesisId: "client",
+        title: body.title || null,
+        error: body.error || null,
+        timestamp: Date.now(),
+      })
+    );
+  }
+  // #endregion
   recordTelemetry({
     type: body.type || "playback",
     sourceType: body.sourceType || null,
@@ -321,6 +361,7 @@ app.use("/api", async (req, res, next) => {
   }
 
   const target = `${config.moviesApiBase}/api${req.url}`;
+  const t0 = Date.now();
   try {
     const headers = { Accept: "application/json" };
     if (req.headers["content-type"]) headers["Content-Type"] = req.headers["content-type"];
@@ -331,6 +372,32 @@ app.use("/api", async (req, res, next) => {
     });
     const text = await upstream.text();
     if (res.headersSent) return;
+    // #region agent log
+    if (!upstream.ok) {
+      console.log(
+        "[debug-78922e]",
+        JSON.stringify({
+          sessionId: "78922e",
+          hypothesisId: "G",
+          location: "index.js:bff",
+          message: "upstream_not_ok",
+          data: {
+            path: req.path,
+            status: upstream.status,
+            ms: Date.now() - t0,
+            targetHost: (() => {
+              try {
+                return new URL(target).host;
+              } catch {
+                return null;
+              }
+            })(),
+          },
+          timestamp: Date.now(),
+        })
+      );
+    }
+    // #endregion
     if (cacheable && upstream.ok) {
       apiCache.set(key, text, cacheTtlFor(req.path));
     }
@@ -340,6 +407,23 @@ app.use("/api", async (req, res, next) => {
     res.setHeader("X-Cache", "MISS");
     res.send(text);
   } catch (err) {
+    // #region agent log
+    console.log(
+      "[debug-78922e]",
+      JSON.stringify({
+        sessionId: "78922e",
+        hypothesisId: "G",
+        location: "index.js:bff",
+        message: "upstream_throw_502",
+        data: {
+          path: req.path,
+          ms: Date.now() - t0,
+          error: err?.message || String(err),
+        },
+        timestamp: Date.now(),
+      })
+    );
+    // #endregion
     if (cacheable) {
       const stale = apiCache.get(key);
       if (stale) {
