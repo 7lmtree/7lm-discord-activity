@@ -43,28 +43,29 @@ export async function bootstrapDiscord({ onStatus, timeoutMs = 12000 } = {}) {
   }
 
   const discordSdk = getSdk();
-  status("Connecting to Discord…");
+  status("نتصل بديسكورد…");
 
   const ready = discordSdk.ready();
   const timed = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error("Discord ready timeout — افتح الأكتيفتي من داخل Discord")), timeoutMs)
+    setTimeout(() => reject(new Error("انتهت مهلة الاتصال — افتح الأكتيفتي من داخل Discord")), timeoutMs)
   );
   await Promise.race([ready, timed]);
 
-  status("Authorizing…");
+  status("جاري التفويض…");
   const { code } = await discordSdk.commands.authorize({
     client_id: CLIENT_ID,
     response_type: "code",
     state: "",
     prompt: "none",
-    scope: ["identify", "guilds", "applications.commands"],
+    scope: ["identify", "applications.commands"],
   });
 
-  status("Exchanging token…");
+  status("تبادل التوكن…");
   const { api } = await import("./api.js");
   const { access_token } = await api.exchangeToken(code);
+  if (!access_token) throw new Error("ما وصل access_token من السيرفر");
 
-  status("Authenticating…");
+  status("تأكيد الهوية…");
   const auth = await discordSdk.commands.authenticate({ access_token });
 
   return {

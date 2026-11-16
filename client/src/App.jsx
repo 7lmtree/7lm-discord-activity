@@ -7,7 +7,7 @@ import { connectWatchRoom } from "./lib/watchSocket.js";
 
 export default function App() {
   const [screen, setScreen] = useState("loading");
-  const [status, setStatus] = useState("Starting…");
+  const [status, setStatus] = useState("نجهّز الجلسة…");
   const [error, setError] = useState("");
   const [outside, setOutside] = useState(false);
   const [session, setSession] = useState(null);

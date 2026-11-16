@@ -67,19 +67,24 @@ export default function ActivityHome({ session, room, onPick }) {
     }
   }
 
+  function mediaId(item) {
+    return item.id || item.movieId || item.contentId || item.subjectId || item.detailPath;
+  }
+
   async function pick(item) {
-    const id = item.id || item.movieId || item.contentId;
+    const id = mediaId(item);
     if (!id) return;
     try {
+      setErr("");
       const sources = await api.sources(id);
       const list = Array.isArray(sources) ? sources : sources?.sources || sources?.data || [];
       const best =
         [...list].sort((a, b) => (b.resolution || 0) - (a.resolution || 0))[0] || list[0];
       const url = best?.url || best?.file || best?.src;
-      if (!url) throw new Error("No playable source");
+      if (!url) throw new Error("ما لقيت مصدر تشغيل");
       onPick({
         mediaId: String(id),
-        kind: item.domainType === 1 || item.type === "tv" ? "tv" : "movie",
+        kind: item.subjectType === 2 || item.domainType === 1 || item.type === "tv" ? "tv" : "movie",
         title: titleText(item),
         poster: posterUrl(item),
         sourceUrl: url,
@@ -87,7 +92,7 @@ export default function ActivityHome({ session, room, onPick }) {
         currentTime: 0,
       });
     } catch (e) {
-      setErr(e.message || "Could not start title");
+      setErr(e.message || "ما قدرت أشغّل العنوان");
     }
   }
 
@@ -131,14 +136,22 @@ export default function ActivityHome({ session, room, onPick }) {
           </form>
 
           <h2 className="row-title">{q ? "نتائج البحث" : "ترند الآن"}</h2>
-          {loading && <p className="status">Loading…</p>}
           {err && <div className="error-box">{err}</div>}
           <div className="grid">
+            {loading &&
+              !items.length &&
+              Array.from({ length: 12 }).map((_, i) => (
+                <div key={`sk-${i}`} className="card skeleton-card" aria-hidden>
+                  <div className="skeleton-poster" />
+                  <div className="skeleton-line" />
+                </div>
+              ))}
             {items.map((item) => {
-              const id = item.id || item.movieId || item.contentId || titleText(item);
+              const id = mediaId(item) || titleText(item);
+              const poster = posterUrl(item);
               return (
                 <button key={id} type="button" className="card" onClick={() => pick(item)}>
-                  <img src={posterUrl(item)} alt="" loading="lazy" />
+                  {poster ? <img src={poster} alt="" loading="lazy" /> : <div className="skeleton-poster" />}
                   <p>{titleText(item)}</p>
                 </button>
               );

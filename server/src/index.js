@@ -14,16 +14,9 @@ const app = express();
 app.use(cors({ origin: config.clientOrigin === "*" ? true : config.clientOrigin }));
 app.use(express.json({ limit: "256kb" }));
 
-app.get("/api/health", (_req, res) => {
-  res.json({
-    ok: true,
-    service: "7lm-discord-activity",
-    moviesApi: config.moviesApiBase,
-    discordConfigured: Boolean(config.discordClientId && config.discordClientSecret),
-  });
-});
+const trendingCache = { body: null, at: 0, ttlMs: 90_000 };
 
-app.post("/api/discord/token", async (req, res) => {
+async function exchangeDiscordToken(req, res) {
   const code = req.body?.code;
   if (!code) return res.status(400).json({ error: "Missing code" });
   if (!config.discordClientId || !config.discordClientSecret) {
@@ -52,12 +45,50 @@ app.post("/api/discord/token", async (req, res) => {
   } catch (err) {
     return res.status(500).json({ error: err.message || "Token exchange failed" });
   }
+}
+
+async function warmMoviesApi() {
+  try {
+    const upstream = await fetch(`${config.moviesApiBase}/api/trending?perPage=12`, {
+      headers: { Accept: "application/json" },
+    });
+    if (upstream.ok) {
+      trendingCache.body = await upstream.text();
+      trendingCache.at = Date.now();
+      console.log("Warmed movies trending cache");
+    }
+  } catch (err) {
+    console.warn("Warm movies API failed:", err.message);
+  }
+}
+
+app.get("/api/health", (_req, res) => {
+  res.json({
+    ok: true,
+    service: "7lm-discord-activity",
+    moviesApi: config.moviesApiBase,
+    discordConfigured: Boolean(config.discordClientId && config.discordClientSecret),
+    clientId: config.discordClientId || null,
+  });
 });
+
+app.post("/api/token", exchangeDiscordToken);
+app.post("/api/discord/token", exchangeDiscordToken);
 
 /** BFF: proxy movie/anime API so Discord needs one /api mapping */
 app.use("/api", async (req, res, next) => {
-  if (req.path === "/health" || req.path.startsWith("/discord")) return next();
+  if (req.path === "/health" || req.path.startsWith("/discord") || req.path === "/token") {
+    return next();
+  }
   if (res.headersSent) return next();
+
+  const isTrendingGet = req.method === "GET" && req.path.startsWith("/trending");
+  if (isTrendingGet && trendingCache.body && Date.now() - trendingCache.at < trendingCache.ttlMs) {
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("X-Cache", "HIT");
+    return res.send(trendingCache.body);
+  }
+
   const target = `${config.moviesApiBase}/api${req.url}`;
   try {
     const headers = { Accept: "application/json" };
@@ -69,11 +100,21 @@ app.use("/api", async (req, res, next) => {
     });
     const text = await upstream.text();
     if (res.headersSent) return;
+    if (isTrendingGet && upstream.ok) {
+      trendingCache.body = text;
+      trendingCache.at = Date.now();
+    }
     res.status(upstream.status);
     const ct = upstream.headers.get("content-type");
     if (ct) res.setHeader("Content-Type", ct);
+    res.setHeader("X-Cache", "MISS");
     res.send(text);
   } catch (err) {
+    if (isTrendingGet && trendingCache.body) {
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("X-Cache", "STALE");
+      return res.send(trendingCache.body);
+    }
     if (!res.headersSent) {
       res.status(502).json({ error: err.message || "Upstream proxy failed" });
     }
@@ -100,4 +141,6 @@ wss.on("connection", (ws) => {
 
 server.listen(config.port, () => {
   console.log(`7LM Discord Activity server on :${config.port}`);
+  warmMoviesApi();
+  setInterval(warmMoviesApi, 4 * 60 * 1000);
 });
