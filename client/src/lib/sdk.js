@@ -60,8 +60,9 @@ export function subscribeLayoutMode(discordSdk, onMode) {
 
 export async function publishPresence(discordSdk, { title, poster, people = 1 } = {}) {
   if (!discordSdk?.commands?.setActivity) return;
+  // Prefer portal Rich Presence asset keys; fall back to poster / hosted art URL
   const large =
-    (poster && /^https?:\/\//i.test(poster) ? poster : "") || absoluteArt("/art/pip.jpg");
+    (poster && /^https?:\/\//i.test(poster) ? poster : "") || "pip";
   try {
     await discordSdk.commands.setActivity({
       activity: {
@@ -71,13 +72,27 @@ export async function publishPresence(discordSdk, { title, poster, people = 1 } 
         assets: {
           large_image: large,
           large_text: title || "7LM Watch",
-          small_image: absoluteArt("/art/icon.jpg"),
+          small_image: "icon",
           small_text: "7LM",
         },
       },
     });
   } catch {
-    /* rpc.activities.write may be unavailable — Art Assets still cover shelf/PiP chrome */
+    try {
+      await discordSdk.commands.setActivity({
+        activity: {
+          type: 3,
+          details: title ? `يشاهد: ${title}` : "7LM Watch Party",
+          state: people > 1 ? `${people} في الغرفة` : "غرفة مشاهدة",
+          assets: {
+            large_image: absoluteArt("/art/pip.jpg"),
+            large_text: title || "7LM Watch",
+          },
+        },
+      });
+    } catch {
+      /* Art Assets / PiP UI still cover shelf + minimized view */
+    }
   }
 }
 
