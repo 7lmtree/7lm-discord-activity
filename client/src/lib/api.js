@@ -99,19 +99,16 @@ async function request(path, options = {}, { retries = 2 } = {}) {
         } catch {
           /* ignore */
         }
-        // #region agent log
-        try {
-          const { debugLog } = await import("./debugLog.js");
-          debugLog("F", "api.js:request", "http_not_ok", {
-            path,
-            status: res.status,
-            attempt,
-            message: String(message).slice(0, 160),
-          });
-        } catch {
-          /* ignore */
+        const cold =
+          [502, 503, 504].includes(res.status) ||
+          /يستيقظ|upstream|bad gateway|unavailable/i.test(message);
+        if (cold && attempt < retries) {
+          await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+          continue;
         }
-        // #endregion
+        if (cold) {
+          throw new Error("الخادم يستيقظ — افتح الأكتيفتي مرة ثانية بعد 10–20 ثانية");
+        }
         throw new Error(message);
       }
       return res.json();
@@ -119,9 +116,9 @@ async function request(path, options = {}, { retries = 2 } = {}) {
       lastError = err;
       const retryable =
         err?.name === "AbortError" ||
-        /failed to fetch|network|aborted|timeout/i.test(String(err?.message || ""));
+        /failed to fetch|network|aborted|timeout|يستيقظ/i.test(String(err?.message || ""));
       if (!retryable || attempt === retries) break;
-      await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
+      await new Promise((r) => setTimeout(r, 900 * (attempt + 1)));
     }
   }
   const msg =

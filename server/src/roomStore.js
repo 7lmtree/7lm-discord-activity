@@ -16,13 +16,26 @@ export async function createRoomStore() {
   if (config.redisUrl) {
     try {
       const mod = await import("redis");
-      redis = mod.createClient({ url: config.redisUrl });
+      redis = mod.createClient({
+        url: config.redisUrl,
+        socket: { connectTimeout: 2500 },
+      });
       redis.on("error", (err) => console.warn("[roomStore] redis error:", err.message));
-      await redis.connect();
+      await Promise.race([
+        redis.connect(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Redis connect timeout")), 3000)
+        ),
+      ]);
       mode = "redis";
       console.log("[roomStore] using Redis");
     } catch (err) {
       console.warn("[roomStore] Redis unavailable, falling back to file:", err.message);
+      try {
+        await redis?.quit?.();
+      } catch {
+        /* ignore */
+      }
       redis = null;
       mode = "memory+file";
     }

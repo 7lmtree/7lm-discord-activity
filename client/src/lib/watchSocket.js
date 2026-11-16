@@ -1,5 +1,4 @@
 import { apiBase } from "./api.js";
-import { debugLog } from "./debugLog.js";
 
 function wsUrl() {
   const base = apiBase();
@@ -50,21 +49,13 @@ export function connectWatchRoom({ instanceId, user, onMessage, onStatus }) {
 
   function connect() {
     if (closed) return;
-    const url = wsUrl();
     onStatus?.(attempt === 0 ? "Connecting watch room…" : "Reconnecting watch room…");
-    // #region agent log
-    debugLog("D", "watchSocket.js:connect", "ws_connecting", { url, attempt });
-    // #endregion
-    ws = new WebSocket(url);
+    ws = new WebSocket(wsUrl());
 
     ws.addEventListener("open", () => {
       attempt = 0;
       onStatus?.("Joined room");
-      // #region agent log
-      debugLog("D", "watchSocket.js:open", "ws_open", { url });
-      // #endregion
       ws.send(joinPayload());
-      // After reconnect, ask server for fresh state (also sent on join)
       sendRaw({ type: "request_sync" });
       clearPing();
       ping = setInterval(() => {
@@ -82,9 +73,6 @@ export function connectWatchRoom({ instanceId, user, onMessage, onStatus }) {
 
     ws.addEventListener("close", () => {
       clearPing();
-      // #region agent log
-      debugLog("D", "watchSocket.js:close", "ws_close", { url, attempt, intentional: closed });
-      // #endregion
       if (closed) {
         onStatus?.("Room disconnected");
         return;
@@ -96,9 +84,6 @@ export function connectWatchRoom({ instanceId, user, onMessage, onStatus }) {
     });
 
     ws.addEventListener("error", () => {
-      // #region agent log
-      debugLog("D", "watchSocket.js:error", "ws_error", { url, attempt });
-      // #endregion
       onStatus?.("Room connection error");
     });
   }

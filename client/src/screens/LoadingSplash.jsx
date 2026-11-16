@@ -65,7 +65,9 @@ export default function LoadingSplash({ status, error, outside }) {
           <div className="error-box">
             <strong>ما قدرت نكمّل الدخول</strong>
             <p>{error}</p>
-            <p className="error-hint">أقفل الأكتيفتي وافتحه من جديد بعد ثوانٍ.</p>
+            <p className="error-hint">
+              على خطة Render المجانية الخادم ينام بعد الخمول. انتظر 15–20 ثانية ثم افتح الأكتيفتي من جديد.
+            </p>
           </div>
         )}
       </div>

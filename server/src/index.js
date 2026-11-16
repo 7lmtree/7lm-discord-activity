@@ -11,6 +11,7 @@ import { createTtlCache } from "./cache.js";
 import { recordTelemetry, listTelemetry } from "./telemetry.js";
 import { createNotifyHook } from "./discordNotify.js";
 import { attachDiscordInteractions } from "./discordBot.js";
+import { fetchWithRetry } from "./upstream.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const clientDist = path.resolve(__dirname, "../../client/dist");
@@ -74,47 +75,23 @@ async function exchangeDiscordToken(req, res) {
     });
     const json = await tokenRes.json();
     if (!tokenRes.ok) {
-      // #region agent log
-      console.log(
-        "[debug-78922e]",
-        JSON.stringify({
-          sessionId: "78922e",
-          hypothesisId: "F",
-          location: "index.js:token",
-          message: "token_exchange_not_ok",
-          data: { status: tokenRes.status, error: json?.error || null },
-          timestamp: Date.now(),
-        })
-      );
-      // #endregion
       return res.status(tokenRes.status).json({
         error: json?.error_description || json?.error || "Token exchange failed",
       });
     }
     return res.json({ access_token: json.access_token });
   } catch (err) {
-    // #region agent log
-    console.log(
-      "[debug-78922e]",
-      JSON.stringify({
-        sessionId: "78922e",
-        hypothesisId: "F",
-        location: "index.js:token",
-        message: "token_exchange_throw",
-        data: { error: err?.message || String(err) },
-        timestamp: Date.now(),
-      })
-    );
-    // #endregion
     return res.status(500).json({ error: err.message || "Token exchange failed" });
   }
 }
 
 async function warmMoviesApi() {
   try {
-    const upstream = await fetch(`${config.moviesApiBase}/api/trending?perPage=12`, {
-      headers: { Accept: "application/json" },
-    });
+    const upstream = await fetchWithRetry(
+      `${config.moviesApiBase}/api/trending?perPage=12`,
+      { headers: { Accept: "application/json" } },
+      { retries: 2, timeoutMs: 60_000 }
+    );
     if (upstream.ok) {
       const text = await upstream.text();
       apiCache.set("GET:/trending?perPage=12", text, 90_000);
@@ -154,20 +131,6 @@ attachDiscordInteractions(app, { getHealth: healthPayload });
 /** Lightweight playback telemetry */
 app.post("/api/telemetry", (req, res) => {
   const body = req.body || {};
-  // #region agent log
-  if (body.type === "debug" || body.kind === "debug") {
-    console.log(
-      "[debug-78922e]",
-      JSON.stringify({
-        sessionId: "78922e",
-        hypothesisId: "client",
-        title: body.title || null,
-        error: body.error || null,
-        timestamp: Date.now(),
-      })
-    );
-  }
-  // #endregion
   recordTelemetry({
     type: body.type || "playback",
     sourceType: body.sourceType || null,
@@ -361,43 +324,20 @@ app.use("/api", async (req, res, next) => {
   }
 
   const target = `${config.moviesApiBase}/api${req.url}`;
-  const t0 = Date.now();
   try {
     const headers = { Accept: "application/json" };
     if (req.headers["content-type"]) headers["Content-Type"] = req.headers["content-type"];
-    const upstream = await fetch(target, {
-      method: req.method,
-      headers,
-      body: ["GET", "HEAD"].includes(req.method) ? undefined : JSON.stringify(req.body || {}),
-    });
+    const upstream = await fetchWithRetry(
+      target,
+      {
+        method: req.method,
+        headers,
+        body: ["GET", "HEAD"].includes(req.method) ? undefined : JSON.stringify(req.body || {}),
+      },
+      { retries: 3, timeoutMs: 55_000 }
+    );
     const text = await upstream.text();
     if (res.headersSent) return;
-    // #region agent log
-    if (!upstream.ok) {
-      console.log(
-        "[debug-78922e]",
-        JSON.stringify({
-          sessionId: "78922e",
-          hypothesisId: "G",
-          location: "index.js:bff",
-          message: "upstream_not_ok",
-          data: {
-            path: req.path,
-            status: upstream.status,
-            ms: Date.now() - t0,
-            targetHost: (() => {
-              try {
-                return new URL(target).host;
-              } catch {
-                return null;
-              }
-            })(),
-          },
-          timestamp: Date.now(),
-        })
-      );
-    }
-    // #endregion
     if (cacheable && upstream.ok) {
       apiCache.set(key, text, cacheTtlFor(req.path));
     }
@@ -407,23 +347,6 @@ app.use("/api", async (req, res, next) => {
     res.setHeader("X-Cache", "MISS");
     res.send(text);
   } catch (err) {
-    // #region agent log
-    console.log(
-      "[debug-78922e]",
-      JSON.stringify({
-        sessionId: "78922e",
-        hypothesisId: "G",
-        location: "index.js:bff",
-        message: "upstream_throw_502",
-        data: {
-          path: req.path,
-          ms: Date.now() - t0,
-          error: err?.message || String(err),
-        },
-        timestamp: Date.now(),
-      })
-    );
-    // #endregion
     if (cacheable) {
       const stale = apiCache.get(key);
       if (stale) {
@@ -433,7 +356,10 @@ app.use("/api", async (req, res, next) => {
       }
     }
     if (!res.headersSent) {
-      res.status(502).json({ error: err.message || "Upstream proxy failed" });
+      res.status(502).json({
+        error: "الخادم يستيقظ — أعد المحاولة بعد لحظات",
+        detail: err.message || "Upstream proxy failed",
+      });
     }
   }
 });
@@ -449,14 +375,17 @@ app.get("*", (req, res, next) => {
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws/watch" });
 
-const store = await createRoomStore();
-roomStoreMode = store.mode;
-const hub = createWatchHub({
-  store,
-  onTitleChange: createNotifyHook(),
-});
+/** Accept HTTP ASAP (Discord cold-start), attach rooms after store is ready. */
+let hub = null;
+const pendingSockets = new Set();
 
 wss.on("connection", (ws) => {
+  if (!hub) {
+    pendingSockets.add(ws);
+    ws.on("close", () => pendingSockets.delete(ws));
+    ws.on("error", () => pendingSockets.delete(ws));
+    return;
+  }
   ws.on("message", (data) => hub.handleMessage(ws, data));
   ws.on("close", () => hub.leave(ws));
   ws.on("error", () => hub.leave(ws));
@@ -464,7 +393,22 @@ wss.on("connection", (ws) => {
 
 server.listen(config.port, () => {
   console.log(`7LM Discord Activity server on :${config.port}`);
-  console.log(`Room store: ${roomStoreMode}`);
   warmMoviesApi();
   setInterval(warmMoviesApi, 4 * 60 * 1000);
 });
+
+const store = await createRoomStore();
+roomStoreMode = store.mode;
+hub = createWatchHub({
+  store,
+  onTitleChange: createNotifyHook(),
+});
+console.log(`Room store: ${roomStoreMode}`);
+
+for (const ws of pendingSockets) {
+  pendingSockets.delete(ws);
+  if (ws.readyState !== 1) continue;
+  ws.on("message", (data) => hub.handleMessage(ws, data));
+  ws.on("close", () => hub.leave(ws));
+  ws.on("error", () => hub.leave(ws));
+}

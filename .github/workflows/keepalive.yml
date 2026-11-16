@@ -1,0 +1,22 @@
+# Keeps Render free-tier services awake so Discord Activities don't get 502 on cold start.
+name: keepalive
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake Activity + movies backend
+        run: |
+          set -e
+          for url in \
+            "https://sevenlm-discord-activity.onrender.com/api/health" \
+            "https://emnex-movies-backend.onrender.com/api/health"
+          do
+            echo "GET $url"
+            curl -fsS --max-time 90 "$url" || echo "warn: $url failed (may still be waking)"
+          done

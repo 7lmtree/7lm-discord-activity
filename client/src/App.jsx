@@ -14,7 +14,6 @@ import {
 import { connectWatchRoom } from "./lib/watchSocket.js";
 import { saveLastWatched } from "./lib/history.js";
 import { api, apiBase } from "./lib/api.js";
-import { debugLog } from "./lib/debugLog.js";
 
 export default function App() {
   const [screen, setScreen] = useState("loading");
@@ -31,56 +30,33 @@ export default function App() {
     hostUserId: null,
   });
   const [socket, setSocket] = useState(null);
+  const [bootKey, setBootKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     let sock = null;
     let unsubLayout = () => {};
+    let retryTimer = null;
 
     (async () => {
       try {
-        // #region agent log
-        debugLog("B", "App.jsx:boot", "app_effect_start", {
-          inDiscord: isProbablyInDiscord(),
-          apiBase: apiBase(),
-          host: typeof location !== "undefined" ? location.host : "",
-        });
-        // #endregion
         if (!isProbablyInDiscord()) {
           setOutside(true);
           setScreen("loading");
           return;
         }
-        // Probe Discord proxy health before OAuth (hypotheses B/E)
+        setError("");
+        setStatus("نوقظ الخادم…");
+        // Wake Render before OAuth (free tier cold start)
         try {
-          const healthUrl = `${apiBase()}/api/health`;
-          const t0 = Date.now();
-          const hr = await fetch(healthUrl, { headers: { Accept: "application/json" } });
-          const body = await hr.text();
-          // #region agent log
-          debugLog("B", "App.jsx:health", "proxy_health_result", {
-            url: healthUrl,
-            status: hr.status,
-            ms: Date.now() - t0,
-            ok: hr.ok,
-            snippet: String(body).slice(0, 180),
+          await fetch(`${apiBase()}/api/health`, {
+            headers: { Accept: "application/json" },
           });
-          // #endregion
-        } catch (he) {
-          // #region agent log
-          debugLog("B", "App.jsx:health", "proxy_health_error", {
-            message: he?.message || String(he),
-          });
-          // #endregion
+        } catch {
+          /* continue — retries below handle wake */
         }
         const boot = await bootstrapDiscord({ onStatus: setStatus });
         if (cancelled) return;
-        // #region agent log
-        debugLog("C", "App.jsx:boot", "discord_bootstrap_ok", {
-          instanceId: boot?.instanceId || null,
-          userId: boot?.user?.id || null,
-        });
-        // #endregion
         setSession(boot);
         unsubLayout = subscribeLayoutMode(boot.sdk, setLayoutMode);
 
@@ -133,34 +109,37 @@ export default function App() {
           },
         });
         setSocket(sock);
-        // #region agent log
-        debugLog("D", "App.jsx:boot", "watch_socket_created", {
-          instanceId: boot.instanceId,
-        });
-        // #endregion
         setScreen("home");
       } catch (e) {
         if (cancelled) return;
-        // #region agent log
-        debugLog("C", "App.jsx:boot", "boot_failed", {
-          message: e?.message || String(e),
-        });
-        // #endregion
         if (e.message === "OUTSIDE_DISCORD") {
           setOutside(true);
-        } else {
-          setError(e.message || "Failed to start Discord activity");
+          setScreen("loading");
+          return;
         }
+        const msg = e.message || "Failed to start Discord activity";
+        const cold = /502|503|504|يستيقظ|bad gateway|failed to fetch|network/i.test(msg);
+        if (cold && bootKey < 2) {
+          setStatus("الخادم يستيقظ — نعيد المحاولة…");
+          retryTimer = setTimeout(() => setBootKey((k) => k + 1), 3500);
+          return;
+        }
+        setError(
+          cold
+            ? "الخادم يستيقظ (Render Free). افتح الأكتيفتي مرة ثانية بعد 15–20 ثانية."
+            : msg
+        );
         setScreen("loading");
       }
     })();
 
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
       unsubLayout();
       sock?.close();
     };
-  }, []);
+  }, [bootKey]);
 
   useEffect(() => {
     if (!session?.sdk) return;
