@@ -75,9 +75,52 @@ app.get("/api/health", (_req, res) => {
 app.post("/api/token", exchangeDiscordToken);
 app.post("/api/discord/token", exchangeDiscordToken);
 
+/** Image proxy — Discord Activity CSP blocks external poster hosts */
+app.get("/api/img", async (req, res) => {
+  try {
+    const raw = String(req.query.u || "");
+    if (!raw) return res.status(400).json({ error: "Missing u" });
+    const url = new URL(raw);
+    if (!/^https?:$/.test(url.protocol)) return res.status(400).json({ error: "Invalid protocol" });
+    const host = url.hostname.toLowerCase();
+    if (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host.endsWith(".local") ||
+      /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(host)
+    ) {
+      return res.status(400).json({ error: "Blocked host" });
+    }
+    const upstream = await fetch(url.href, {
+      headers: {
+        Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        "User-Agent": "7LM-Discord-Activity/1.0",
+      },
+      redirect: "follow",
+    });
+    if (!upstream.ok) return res.status(upstream.status).json({ error: "Upstream image failed" });
+    const ct = upstream.headers.get("content-type") || "image/jpeg";
+    if (!/^image\//i.test(ct) && !/octet-stream/i.test(ct)) {
+      return res.status(415).json({ error: "Not an image" });
+    }
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    res.setHeader("Content-Type", ct);
+    res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    return res.send(buf);
+  } catch (err) {
+    return res.status(502).json({ error: err.message || "Image proxy failed" });
+  }
+});
+
 /** BFF: proxy movie/anime API so Discord needs one /api mapping */
 app.use("/api", async (req, res, next) => {
-  if (req.path === "/health" || req.path.startsWith("/discord") || req.path === "/token") {
+  if (
+    req.path === "/health" ||
+    req.path.startsWith("/discord") ||
+    req.path === "/token" ||
+    req.path === "/img"
+  ) {
     return next();
   }
   if (res.headersSent) return next();

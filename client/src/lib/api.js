@@ -18,6 +18,25 @@ function pickUrl(value) {
   return "";
 }
 
+/** Discord Activity CSP blocks external image hosts — route through our /api/img proxy */
+export function mediaSrc(url) {
+  const raw = pickUrl(url);
+  if (!raw) return "";
+  if (raw.startsWith("data:") || raw.startsWith("blob:")) return raw;
+  if (raw.includes("/api/img?")) return raw;
+  // Local/static assets stay as-is
+  if (raw.startsWith("/art/") || raw.startsWith("./art/")) return raw;
+  try {
+    const abs = raw.startsWith("//") ? `https:${raw}` : raw;
+    if (!/^https?:\/\//i.test(abs)) return raw;
+    // Discord CDN avatars are allowed by CSP exceptions
+    if (/^https:\/\/(cdn\.discordapp\.com|media\.discordapp\.net)\//i.test(abs)) return abs;
+    return `${apiBase()}/api/img?u=${encodeURIComponent(abs)}`;
+  } catch {
+    return raw;
+  }
+}
+
 async function request(path, options = {}, { retries = 2 } = {}) {
   let lastError;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
@@ -89,19 +108,25 @@ export const api = {
 };
 
 export function posterUrl(item) {
-  return (
+  return mediaSrc(
     pickUrl(item?.poster) ||
-    pickUrl(item?.coverVerticalUrl) ||
-    pickUrl(item?.coverHorizontalUrl) ||
-    pickUrl(item?.cover) ||
-    pickUrl(item?.image) ||
-    pickUrl(item?.thumbnail) ||
-    ""
+      pickUrl(item?.coverVerticalUrl) ||
+      pickUrl(item?.coverHorizontalUrl) ||
+      pickUrl(item?.cover) ||
+      pickUrl(item?.image) ||
+      pickUrl(item?.thumbnail) ||
+      ""
   );
 }
 
 export function bannerUrl(item) {
-  return pickUrl(item?.banner) || pickUrl(item?.coverHorizontalUrl) || posterUrl(item);
+  const raw =
+    pickUrl(item?.banner) ||
+    pickUrl(item?.coverHorizontalUrl) ||
+    pickUrl(item?.poster) ||
+    pickUrl(item?.cover) ||
+    "";
+  return mediaSrc(raw) || posterUrl(item);
 }
 
 export function titleText(item) {
