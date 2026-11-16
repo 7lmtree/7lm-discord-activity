@@ -32,13 +32,16 @@ export default function ActivityHome({ session, room, onPick }) {
     (async () => {
       try {
         setLoading(true);
+        setErr("");
         const [trendRes, animeRes] = await Promise.all([
           api.trending(36),
-          api.animeTrending(1).catch(() => ({ items: [] })),
+          api.animeTrending(1, 24).catch(() => api.animePopular(1, 24)),
         ]);
         if (cancelled) return;
         setTrending(extractList(trendRes).slice(0, 36));
-        setAnime(extractList(animeRes).slice(0, 24));
+        const animeList = extractList(animeRes).slice(0, 24);
+        setAnime(animeList);
+        if (!animeList.length) setErr((prev) => prev || "قائمة الأنمي فاضيّة مؤقتًا");
       } catch (e) {
         if (!cancelled) setErr(e.message || "فشل تحميل العناوين");
       } finally {
@@ -74,10 +77,12 @@ export default function ActivityHome({ session, room, onPick }) {
     () => trending.filter((x) => isSeriesItem(x) && !isAnimeItem(x)).slice(0, 18),
     [trending]
   );
-  const movies = useMemo(
-    () => trending.filter((x) => !isSeriesItem(x)).slice(0, 18),
-    [trending]
-  );
+  const movies = useMemo(() => {
+    const onlyMovies = trending.filter((x) => !isSeriesItem(x) && !isAnimeItem(x));
+    // Trending feed is often series-heavy — keep a movie-like slice from the rest
+    if (onlyMovies.length) return onlyMovies.slice(0, 18);
+    return trending.filter((x) => !isAnimeItem(x)).slice(0, 18);
+  }, [trending]);
   const hero = trending[0] || anime[0] || null;
 
   async function search(e) {
@@ -213,9 +218,9 @@ export default function ActivityHome({ session, room, onPick }) {
         {!q.trim() && (
           <>
             <MediaRow title="ترند الآن" items={trending.slice(0, 18)} loading={loading} onPick={pick} />
+            <MediaRow title="أنمي" items={anime} loading={loading} onPick={pick} />
             <MediaRow title="مسلسلات" items={series} loading={loading} onPick={pick} />
             <MediaRow title="أفلام" items={movies} loading={loading} onPick={pick} />
-            <MediaRow title="أنمي" items={anime} loading={loading} onPick={pick} />
           </>
         )}
       </div>

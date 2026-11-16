@@ -43,9 +43,7 @@ export function mediaSrc(url) {
 
 /**
  * Rewrite stream hosts to Discord URL Mapping prefixes.
- * Requires Portal mappings:
- *   /emnex      -> api.emnexmovies.cc
- *   /stream-cdn -> bcdnw.hakunaymatata.com
+ * Requires Portal mappings (see STREAM_URL_MAPPINGS).
  */
 export function streamSrc(url) {
   const raw = pickUrl(url);
@@ -55,10 +53,16 @@ export function streamSrc(url) {
     const host = u.hostname.toLowerCase();
     const rest = `${u.pathname}${u.search}${u.hash}`;
     if (host === "api.emnexmovies.cc") return `${apiBase()}/emnex${rest}`;
+    if (host === "api.emnexanime.site") return `${apiBase()}/emnex-anime${rest}`;
     if (host === "bcdnw.hakunaymatata.com") return `${apiBase()}/stream-cdn${rest}`;
+    if (host === "fetch.nexabloom.top") return `${apiBase()}/nexabloom${rest}`;
     if (host.endsWith(".hakunaymatata.com")) {
       const sub = host.replace(/\.hakunaymatata\.com$/, "");
       return `${apiBase()}/hakuna/${sub}${rest}`;
+    }
+    if (host.endsWith(".nexabloom.top")) {
+      const sub = host.replace(/\.nexabloom\.top$/, "");
+      return `${apiBase()}/nexa/${sub}${rest}`;
     }
     return raw;
   } catch {
@@ -66,11 +70,14 @@ export function streamSrc(url) {
   }
 }
 
-/** Mappings passed to Discord SDK patchUrlMappings */
+/** Mappings passed to Discord SDK patchUrlMappings + Developer Portal */
 export const STREAM_URL_MAPPINGS = [
   { prefix: "/emnex", target: "api.emnexmovies.cc" },
+  { prefix: "/emnex-anime", target: "api.emnexanime.site" },
   { prefix: "/stream-cdn", target: "bcdnw.hakunaymatata.com" },
+  { prefix: "/nexabloom", target: "fetch.nexabloom.top" },
   { prefix: "/hakuna/{subdomain}", target: "{subdomain}.hakunaymatata.com" },
+  { prefix: "/nexa/{subdomain}", target: "{subdomain}.nexabloom.top" },
 ];
 
 async function request(path, options = {}, { retries = 2 } = {}) {
@@ -125,12 +132,16 @@ export const api = {
   trending: (perPage = 24) => request(`/api/trending?perPage=${perPage}`, {}, { retries: 3 }),
   search: (q, page = 1) =>
     request(`/api/search/${encodeURIComponent(q)}?page=${page}`, {}, { retries: 2 }),
-  animeTrending: (page = 1) =>
-    request(`/api/anime/trending?page=${page}`, {}, { retries: 2 }),
-  animePopular: (page = 1) =>
-    request(`/api/anime/popular?page=${page}`, {}, { retries: 2 }),
-  animeSearch: (q, page = 1) =>
-    request(`/api/anime/search/${encodeURIComponent(q)}?page=${page}`, {}, { retries: 2 }),
+  animeTrending: (page = 1, perPage = 24) =>
+    request(`/api/anime/trending?perPage=${perPage}&page=${page}`, {}, { retries: 2 }),
+  animePopular: (page = 1, perPage = 24) =>
+    request(`/api/anime/popular?perPage=${perPage}&page=${page}`, {}, { retries: 2 }),
+  animeSearch: (q, page = 1, perPage = 24) =>
+    request(
+      `/api/anime/search/${encodeURIComponent(q)}?perPage=${perPage}&page=${page}`,
+      {},
+      { retries: 2 }
+    ),
   movie: (id) => request(`/api/movie/${id}`),
   sources: (id, season, episode) => {
     const q = new URLSearchParams();
@@ -139,8 +150,12 @@ export const api = {
     const qs = q.toString();
     return request(`/api/sources/${id}${qs ? `?${qs}` : ""}`, {}, { retries: 2 });
   },
-  animeSources: (id, ep = 1) =>
-    request(`/api/anime/sources/${id}/${ep}`, {}, { retries: 2 }),
+  animeSources: (id, ep = 1, type = "sub") =>
+    request(
+      `/api/anime/sources/${encodeURIComponent(id)}/${encodeURIComponent(ep)}?type=${encodeURIComponent(type)}`,
+      {},
+      { retries: 2 }
+    ),
 };
 
 export function posterUrl(item) {
@@ -226,6 +241,10 @@ export function metaLine(item) {
 }
 
 export function pickSourceUrl(payload) {
+  // Anime sources often return { hls } instead of a sources[] list
+  if (payload?.hls) return String(payload.hls);
+  if (typeof payload?.stream === "string") return payload.stream;
+
   const list = Array.isArray(payload)
     ? payload
     : payload?.sources?.length
@@ -242,6 +261,7 @@ export function pickSourceUrl(payload) {
     best?.streamUrl ||
     best?.file ||
     best?.src ||
+    best?.hls ||
     payload?.url ||
     payload?.streamUrl ||
     ""

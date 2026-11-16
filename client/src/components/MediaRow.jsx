@@ -7,7 +7,7 @@ export default function MediaRow({ title, items = [], loading = false, onPick })
       <div className="media-row-head">
         <h2>{title}</h2>
       </div>
-      <div className="media-rail" dir="ltr">
+      <div className="media-rail" dir="rtl">
         {loading &&
           !items.length &&
           Array.from({ length: 8 }).map((_, i) => (
